@@ -7,11 +7,13 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from django.contrib.auth.decorators import login_required
+
 from .models import Puzzle, PuzzleCompletion, WordSum
 
 
 def puzzle_list(request):
-    puzzles = Puzzle.objects.all()
+    puzzles = Puzzle.objects.select_related("created_by").all()
     if request.user.is_authenticated:
         completed_ids = set(
             PuzzleCompletion.objects.filter(user=request.user).values_list("puzzle_id", flat=True)
@@ -92,3 +94,30 @@ def register(request):
     else:
         form = UserCreationForm()
     return render(request, "game/register.html", {"form": form})
+
+
+@login_required
+def create_puzzle(request):
+    return render(request, "game/create_puzzle.html")
+
+
+@login_required
+@require_POST
+def save_puzzle(request):
+    data = json.loads(request.body)
+    name = data.get("name", "").strip()
+    word_sums = data.get("word_sums", [])
+
+    if not name or not word_sums:
+        return JsonResponse({"error": "Name and at least one word sum required."}, status=400)
+
+    puzzle = Puzzle.objects.create(name=name, created_by=request.user)
+    for ws in word_sums:
+        WordSum.objects.create(
+            puzzle=puzzle,
+            addend1=ws["addend1"].strip(),
+            addend2=ws["addend2"].strip(),
+            sum_word=ws["sum_word"].strip(),
+        )
+
+    return JsonResponse({"id": puzzle.pk})

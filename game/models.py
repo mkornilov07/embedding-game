@@ -4,6 +4,9 @@ from django.db import models
 
 class Puzzle(models.Model):
     name = models.CharField(max_length=200)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="puzzles",
+    )
 
     def __str__(self):
         return self.name

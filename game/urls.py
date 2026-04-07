@@ -10,4 +10,6 @@ urlpatterns = [
     path("login/", LoginView.as_view(template_name="game/login.html"), name="login"),
     path("logout/", LogoutView.as_view(next_page="puzzle_list"), name="logout"),
     path("register/", views.register, name="register"),
+    path("create/", views.create_puzzle, name="create_puzzle"),
+    path("create/save/", views.save_puzzle, name="save_puzzle"),
 ]

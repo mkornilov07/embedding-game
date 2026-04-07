@@ -196,10 +196,17 @@
     .back-btn:hover {
       transform: scale(1.05);
     }
+
+    .author {
+      color: #718096;
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+    }
   </style>
 </head>
 <body>
   <h1>{{ puzzle.name }}</h1>
+  {% if puzzle.created_by %}<div class="author">by {{ puzzle.created_by.username }}</div>{% endif %}
 
   <div class="word-bank" id="word-bank"></div>
 

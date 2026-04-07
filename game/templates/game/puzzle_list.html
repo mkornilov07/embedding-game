@@ -69,6 +69,13 @@
       margin-right: 0.5rem;
       font-weight: 700;
     }
+    .author {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 400;
+      color: #718096;
+      margin-top: 0.15rem;
+    }
   </style>
 </head>
 <body>
@@ -82,11 +89,15 @@
     {% endif %}
   </div>
   <h1>Puzzles</h1>
+  {% if user.is_authenticated %}
+    <a class="puzzle-link" href="{% url 'create_puzzle' %}" style="max-width:400px;text-align:center;margin-bottom:1rem;background:#ebf8ff;color:#4299e1;">+ Create Puzzle</a>
+  {% endif %}
   <div class="puzzle-list">
     {% for p in puzzles %}
       <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
         {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
         {{ p.name }}
+        {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
       </a>
     {% empty %}
       <p class="empty">No puzzles yet.</p>

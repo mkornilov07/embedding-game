@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Puzzle</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+      color: #1a202c;
+    }
+    h1 { font-size: 1.8rem; margin-bottom: 2rem; }
+    .form-area {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    label { font-weight: 500; margin-bottom: 0.25rem; display: block; }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #cbd5e0;
+      border-radius: 0.25rem;
+      font-size: 1rem;
+    }
+    .word-sum-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .word-sum-row input { flex: 1; }
+    .word-sum-row .op {
+      font-weight: 600;
+      color: #718096;
+      font-size: 1.2rem;
+    }
+    .word-sum-row .remove-btn {
+      background: none;
+      border: none;
+      color: #e53e3e;
+      font-size: 1.3rem;
+      cursor: pointer;
+      padding: 0 0.3rem;
+    }
+    .word-sum-row .remove-btn:hover { color: #c53030; }
+    .word-sums-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .btn {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 0.25rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-add {
+      background: #edf2f7;
+      color: #4a5568;
+      align-self: flex-start;
+    }
+    .btn-add:hover { background: #e2e8f0; }
+    .btn-save {
+      background: #4299e1;
+      color: #fff;
+      width: 100%;
+      padding: 0.75rem;
+    }
+    .btn-save:hover { background: #3182ce; }
+    .btn-save:disabled { background: #a0aec0; cursor: default; }
+    .error { color: #e53e3e; font-size: 0.9rem; }
+    .back { margin-bottom: 1rem; align-self: flex-start; }
+    .back a { color: #4299e1; text-decoration: none; }
+    .back a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="back"><a href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
+  <h1>Create Puzzle</h1>
+
+  <div class="form-area" id="form-area">
+    <div>
+      <label for="puzzle-name">Puzzle Name</label>
+      <input type="text" id="puzzle-name" placeholder="e.g. Compound Words">
+    </div>
+
+    <div>
+      <label>Word Sums</label>
+      <div class="word-sums-list" id="word-sums-list"></div>
+      <button class="btn btn-add" onclick="addWordSum()" style="margin-top: 0.75rem">+ Add Word Sum</button>
+    </div>
+
+    <div class="error" id="error" style="display:none"></div>
+    <button class="btn btn-save" id="save-btn" onclick="savePuzzle()">Save Puzzle</button>
+  </div>
+
+  <script>
+    const csrfToken = "{{ csrf_token }}";
+    const saveUrl = "{% url 'save_puzzle' %}";
+    const list = document.getElementById("word-sums-list");
+    let rowCount = 0;
+
+    function addWordSum() {
+      const row = document.createElement("div");
+      row.className = "word-sum-row";
+      row.innerHTML = `
+        <input type="text" placeholder="word 1" data-field="addend1">
+        <span class="op">+</span>
+        <input type="text" placeholder="word 2" data-field="addend2">
+        <span class="op">=</span>
+        <input type="text" placeholder="result" data-field="sum_word">
+        <button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>
+      `;
+      list.appendChild(row);
+      row.querySelector("input").focus();
+      rowCount++;
+    }
+
+    // Start with one row
+    addWordSum();
+
+    function savePuzzle() {
+      const name = document.getElementById("puzzle-name").value.trim();
+      const rows = list.querySelectorAll(".word-sum-row");
+      const errorEl = document.getElementById("error");
+      errorEl.style.display = "none";
+
+      const wordSums = [];
+      for (const row of rows) {
+        const addend1 = row.querySelector("[data-field='addend1']").value.trim();
+        const addend2 = row.querySelector("[data-field='addend2']").value.trim();
+        const sumWord = row.querySelector("[data-field='sum_word']").value.trim();
+        if (!addend1 || !addend2 || !sumWord) {
+          errorEl.textContent = "Fill in all fields for each word sum.";
+          errorEl.style.display = "block";
+          return;
+        }
+        wordSums.push({ addend1, addend2, sum_word: sumWord });
+      }
+
+      if (!name) {
+        errorEl.textContent = "Enter a puzzle name.";
+        errorEl.style.display = "block";
+        return;
+      }
+      if (wordSums.length === 0) {
+        errorEl.textContent = "Add at least one word sum.";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      const btn = document.getElementById("save-btn");
+      btn.disabled = true;
+
+      fetch(saveUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken,
+        },
+        body: JSON.stringify({ name, word_sums: wordSums }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.id) {
+            window.location.href = `/puzzle/${data.id}/`;
+          } else {
+            errorEl.textContent = data.error || "Something went wrong.";
+            errorEl.style.display = "block";
+            btn.disabled = false;
+          }
+        })
+        .catch(() => {
+          errorEl.textContent = "Something went wrong.";
+          errorEl.style.display = "block";
+          btn.disabled = false;
+        });
+    }
+  </script>
+</body>
+</html>
