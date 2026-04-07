@@ -130,6 +130,7 @@
       el.dataset.index = i;
       el.addEventListener("dragstart", onDragStart);
       el.addEventListener("dragend", onDragEnd);
+      el.addEventListener("click", onBubbleClick);
       bank.appendChild(el);
     });
 
@@ -180,6 +181,21 @@
       e.dataTransfer.effectAllowed = "move";
     }
 
+    function placeWord(bubble, box) {
+      bubble.classList.add("placed");
+      box.textContent = words[bubble.dataset.index];
+      box.dataset.wordIndex = bubble.dataset.index;
+      box.classList.add("filled");
+    }
+
+    function onBubbleClick(e) {
+      const bubble = e.target;
+      if (bubble.classList.contains("placed")) return;
+      const box = document.querySelector(".drop-box:not(.filled)");
+      if (!box) return;
+      placeWord(bubble, box);
+    }
+
     function onDragEnd(e) {
       e.target.classList.remove("dragging");
       dragIndex = null;
@@ -204,12 +220,7 @@
 
       const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
       bubble.classList.remove("dragging");
-      bubble.classList.add("placed");
-
-      box.textContent = words[dragIndex];
-      box.dataset.wordIndex = dragIndex;
-      box.classList.add("filled");
-
+      placeWord(bubble, box);
       dragIndex = null;
     }
 
