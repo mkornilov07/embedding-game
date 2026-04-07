@@ -41,13 +41,43 @@
       transform: translateY(-1px);
     }
     .empty { color: #718096; font-size: 1.1rem; }
+    .nav {
+      position: absolute;
+      top: 1rem;
+      right: 1.5rem;
+      font-size: 0.95rem;
+    }
+    .nav a {
+      color: #4299e1;
+      text-decoration: none;
+      margin-left: 1rem;
+    }
+    .nav a:hover { text-decoration: underline; }
+    .nav span { color: #718096; }
+    .check {
+      color: #10b981;
+      margin-right: 0.5rem;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
+  <div class="nav">
+    {% if user.is_authenticated %}
+      <span>{{ user.username }}</span>
+      <a href="{% url 'logout' %}">Log Out</a>
+    {% else %}
+      <a href="{% url 'login' %}">Log In</a>
+      <a href="{% url 'register' %}">Register</a>
+    {% endif %}
+  </div>
   <h1>Puzzles</h1>
   <div class="puzzle-list">
     {% for p in puzzles %}
-      <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">{{ p.name }}</a>
+      <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
+        {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
+        {{ p.name }}
+      </a>
     {% empty %}
       <p class="empty">No puzzles yet.</p>
     {% endfor %}

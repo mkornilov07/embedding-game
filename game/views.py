@@ -1,16 +1,27 @@
 import json
 import random
 
+from django.contrib.auth import login
+from django.contrib.auth.forms import UserCreationForm
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .models import Puzzle, WordSum
+from .models import Puzzle, PuzzleCompletion, WordSum
 
 
 def puzzle_list(request):
     puzzles = Puzzle.objects.all()
-    return render(request, "game/puzzle_list.html", {"puzzles": puzzles})
+    if request.user.is_authenticated:
+        completed_ids = set(
+            PuzzleCompletion.objects.filter(user=request.user).values_list("puzzle_id", flat=True)
+        )
+    else:
+        completed_ids = set()
+    return render(request, "game/puzzle_list.html", {
+        "puzzles": puzzles,
+        "completed_ids": completed_ids,
+    })
 
 
 def puzzle(request, pk):
@@ -65,4 +76,19 @@ def check_puzzle(request, pk):
             return JsonResponse({"correct": False})
         unmatched.remove(key)
 
-    return JsonResponse({"correct": len(unmatched) == 0})
+    correct = len(unmatched) == 0
+    if correct and request.user.is_authenticated:
+        PuzzleCompletion.objects.get_or_create(user=request.user, puzzle=p)
+    return JsonResponse({"correct": correct})
+
+
+def register(request):
+    if request.method == "POST":
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            return redirect("puzzle_list")
+    else:
+        form = UserCreationForm()
+    return render(request, "game/register.html", {"form": form})
