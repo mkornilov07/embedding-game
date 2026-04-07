@@ -54,6 +54,16 @@
     }
     .nav a:hover { text-decoration: underline; }
     .nav span { color: #718096; }
+    .nav form { display: inline; margin-left: 1rem; }
+    .nav button {
+      background: none;
+      border: none;
+      color: #4299e1;
+      font-size: inherit;
+      cursor: pointer;
+      padding: 0;
+    }
+    .nav button:hover { text-decoration: underline; }
     .check {
       color: #10b981;
       margin-right: 0.5rem;
@@ -65,7 +75,7 @@
   <div class="nav">
     {% if user.is_authenticated %}
       <span>{{ user.username }}</span>
-      <a href="{% url 'logout' %}">Log Out</a>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Log Out</button></form>
     {% else %}
       <a href="{% url 'login' %}">Log In</a>
       <a href="{% url 'register' %}">Register</a>
