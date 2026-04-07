@@ -105,6 +105,97 @@
       font-size: 1.4rem;
       color: #718096;
     }
+
+    /* Result overlays */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .overlay.show { display: flex; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    /* Wrong overlay */
+    .overlay-wrong {
+      background: rgba(220, 38, 38, 0.85);
+    }
+
+    .overlay-wrong .icon {
+      font-size: 12rem;
+      color: #fff;
+      animation: shake 0.5s ease;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-15px); }
+      40%, 80% { transform: translateX(15px); }
+    }
+
+    /* Correct overlay */
+    .overlay-correct {
+      background: rgba(16, 185, 129, 0.85);
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .overlay-correct .icon {
+      font-size: 6rem;
+      color: #fff;
+    }
+
+    .overlay-correct .message {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .fireworks {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 101;
+    }
+
+    .spark {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      animation: spark 1s ease-out forwards;
+    }
+
+    @keyframes spark {
+      0% { opacity: 1; transform: translate(0, 0) scale(1); }
+      100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0); }
+    }
+
+    .back-btn {
+      margin-top: 1.5rem;
+      padding: 0.75rem 2rem;
+      background: #fff;
+      color: #10b981;
+      border: none;
+      border-radius: 0.5rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.1s;
+    }
+
+    .back-btn:hover {
+      transform: scale(1.05);
+    }
   </style>
 </head>
 <body>
@@ -114,9 +205,22 @@
 
   <div class="equations" id="equations"></div>
 
+  <div class="overlay overlay-wrong" id="overlay-wrong" onclick="dismissOverlay()">
+    <div class="icon">&#x2717;</div>
+  </div>
+
+  <div class="overlay overlay-correct" id="overlay-correct">
+    <div class="icon">&#x2713;</div>
+    <div class="message">Nice!</div>
+    <a class="back-btn" href="{% url 'puzzle_list' %}">All Puzzles</a>
+    <div class="fireworks" id="fireworks"></div>
+  </div>
+
   <script>
     const words = {{ words_json|safe }};
-    const sequences = {{ sequences_json|safe }};
+    const combinations = {{ combinations_json|safe }};
+    const checkUrl = "{% url 'check_puzzle' puzzle.pk %}";
+    const csrfToken = "{{ csrf_token }}";
 
     const bank = document.getElementById("word-bank");
     const eqContainer = document.getElementById("equations");
@@ -134,32 +238,41 @@
       bank.appendChild(el);
     });
 
-    // Render sequences
-    sequences.forEach((seq, i) => {
+    // Render combinations by type
+    combinations.forEach((combo, i) => {
       const row = document.createElement("div");
       row.className = "equation";
-      row.dataset.sequence = i;
+      row.dataset.combo = i;
 
-      for (let j = 0; j < seq.num_slots; j++) {
-        if (j > 0 && seq.operators[j - 1]) {
-          const op = document.createElement("span");
-          op.className = "operator";
-          op.textContent = seq.operators[j - 1];
-          row.appendChild(op);
+      if (combo.type === "word_sum") {
+        for (let j = 0; j < 3; j++) {
+          if (j === 1) addOperator(row, "+");
+          if (j === 2) addOperator(row, "=");
+          row.appendChild(makeDropBox(i, j));
         }
-        const box = document.createElement("div");
-        box.className = "drop-box";
-        box.dataset.sequence = i;
-        box.dataset.slot = j;
-        box.addEventListener("dragover", onDragOver);
-        box.addEventListener("dragleave", onDragLeave);
-        box.addEventListener("drop", onDrop);
-        box.addEventListener("click", onBoxClick);
-        row.appendChild(box);
       }
 
       eqContainer.appendChild(row);
     });
+
+    function addOperator(row, text) {
+      const op = document.createElement("span");
+      op.className = "operator";
+      op.textContent = text;
+      row.appendChild(op);
+    }
+
+    function makeDropBox(comboIndex, slot) {
+      const box = document.createElement("div");
+      box.className = "drop-box";
+      box.dataset.combo = comboIndex;
+      box.dataset.slot = slot;
+      box.addEventListener("dragover", onDragOver);
+      box.addEventListener("dragleave", onDragLeave);
+      box.addEventListener("drop", onDrop);
+      box.addEventListener("click", onBoxClick);
+      return box;
+    }
 
     let dragIndex = null;
 
@@ -179,6 +292,7 @@
       box.textContent = words[bubble.dataset.index].text;
       box.dataset.wordIndex = bubble.dataset.index;
       box.classList.add("filled");
+      checkAllFilled();
     }
 
     function onBubbleClick(e) {
@@ -228,6 +342,73 @@
       box.textContent = "";
       delete box.dataset.wordIndex;
       box.classList.remove("filled");
+    }
+
+    // Check if all boxes are filled, then verify with backend
+    function checkAllFilled() {
+      const allBoxes = document.querySelectorAll(".drop-box");
+      const allFilled = Array.from(allBoxes).every(b => b.dataset.wordIndex !== undefined);
+      if (!allFilled) return;
+
+      const payload = combinations.map((combo, i) => {
+        const boxes = document.querySelectorAll(`.drop-box[data-combo="${i}"]`);
+        const slotWords = Array.from(boxes).map(b => words[b.dataset.wordIndex].text);
+        return { id: combo.id, words: slotWords };
+      });
+
+      fetch(checkUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken,
+        },
+        body: JSON.stringify(payload),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.correct) {
+            showCorrect();
+          } else {
+            showWrong();
+          }
+        });
+    }
+
+    function showWrong() {
+      document.getElementById("overlay-wrong").classList.add("show");
+    }
+
+    function dismissOverlay() {
+      document.getElementById("overlay-wrong").classList.remove("show");
+    }
+
+    function showCorrect() {
+      document.getElementById("overlay-correct").classList.add("show");
+      launchFireworks();
+    }
+
+    function launchFireworks() {
+      const container = document.getElementById("fireworks");
+      const colors = ["#fbbf24", "#f87171", "#34d399", "#60a5fa", "#a78bfa", "#f472b6"];
+
+      for (let burst = 0; burst < 5; burst++) {
+        const cx = Math.random() * window.innerWidth;
+        const cy = Math.random() * window.innerHeight * 0.6;
+
+        for (let i = 0; i < 30; i++) {
+          const spark = document.createElement("div");
+          spark.className = "spark";
+          const angle = (Math.PI * 2 * i) / 30;
+          const dist = 80 + Math.random() * 120;
+          spark.style.left = cx + "px";
+          spark.style.top = cy + "px";
+          spark.style.background = colors[Math.floor(Math.random() * colors.length)];
+          spark.style.setProperty("--dx", Math.cos(angle) * dist + "px");
+          spark.style.setProperty("--dy", Math.sin(angle) * dist + "px");
+          spark.style.animationDelay = burst * 0.2 + "s";
+          container.appendChild(spark);
+        }
+      }
     }
   </script>
 </body>
