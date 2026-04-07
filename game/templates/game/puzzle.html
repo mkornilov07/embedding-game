@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Word Sums</title>
+  <title>{{ puzzle.name }}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -108,7 +108,7 @@
   </style>
 </head>
 <body>
-  <h1>Word Sums</h1>
+  <h1>{{ puzzle.name }}</h1>
 
   <div class="word-bank" id="word-bank"></div>
 
@@ -116,7 +116,7 @@
 
   <script>
     const words = {{ words_json|safe }};
-    const equations = {{ equations_json|safe }};
+    const sequences = {{ sequences_json|safe }};
 
     const bank = document.getElementById("word-bank");
     const eqContainer = document.getElementById("equations");
@@ -125,7 +125,7 @@
     words.forEach((word, i) => {
       const el = document.createElement("div");
       el.className = "word-bubble";
-      el.textContent = word;
+      el.textContent = word.text;
       el.draggable = true;
       el.dataset.index = i;
       el.addEventListener("dragstart", onDragStart);
@@ -134,36 +134,29 @@
       bank.appendChild(el);
     });
 
-    // Render equations
-    equations.forEach((eq, i) => {
+    // Render sequences
+    sequences.forEach((seq, i) => {
       const row = document.createElement("div");
       row.className = "equation";
+      row.dataset.sequence = i;
 
-      const slots = ["addend1", "addend2", "sum"];
-      slots.forEach((slot, j) => {
-        if (j === 2) {
+      for (let j = 0; j < seq.num_slots; j++) {
+        if (j > 0 && seq.operators[j - 1]) {
           const op = document.createElement("span");
           op.className = "operator";
-          op.textContent = "=";
+          op.textContent = seq.operators[j - 1];
           row.appendChild(op);
         }
         const box = document.createElement("div");
         box.className = "drop-box";
-        box.dataset.equation = i;
-        box.dataset.slot = slot;
+        box.dataset.sequence = i;
+        box.dataset.slot = j;
         box.addEventListener("dragover", onDragOver);
         box.addEventListener("dragleave", onDragLeave);
         box.addEventListener("drop", onDrop);
         box.addEventListener("click", onBoxClick);
         row.appendChild(box);
-
-        if (j === 0) {
-          const op = document.createElement("span");
-          op.className = "operator";
-          op.textContent = "+";
-          row.appendChild(op);
-        }
-      });
+      }
 
       eqContainer.appendChild(row);
     });
@@ -183,7 +176,7 @@
 
     function placeWord(bubble, box) {
       bubble.classList.add("placed");
-      box.textContent = words[bubble.dataset.index];
+      box.textContent = words[bubble.dataset.index].text;
       box.dataset.wordIndex = bubble.dataset.index;
       box.classList.add("filled");
     }
@@ -216,7 +209,7 @@
       box.classList.remove("drag-over");
 
       if (dragIndex === null) return;
-      if (box.dataset.wordIndex !== undefined) return; // already filled
+      if (box.dataset.wordIndex !== undefined) return;
 
       const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
       bubble.classList.remove("dragging");
@@ -224,7 +217,6 @@
       dragIndex = null;
     }
 
-    // Click a filled box to return the word to the bank
     function onBoxClick(e) {
       const box = e.currentTarget;
       if (box.dataset.wordIndex === undefined) return;

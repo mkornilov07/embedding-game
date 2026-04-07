@@ -1,25 +1,48 @@
 import json
 import random
 
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 
-from .models import WordSum
+from .models import Puzzle, WordSum
 
 
-def puzzle(request):
-    word_sums = list(WordSum.objects.all())
-    random.shuffle(word_sums)
+def puzzle_list(request):
+    puzzles = Puzzle.objects.all()
+    return render(request, "game/puzzle_list.html", {"puzzles": puzzles})
 
-    # Collect all words and shuffle them for the word bank
+
+def puzzle(request, pk):
+    p = get_object_or_404(Puzzle, pk=pk)
+    combinations = list(p.combinations.all())
+    random.shuffle(combinations)
+
     words = []
-    for ws in word_sums:
-        words.extend([ws.addend1, ws.addend2, ws.sum_word])
+    sequences = []
+
+    for i, combo in enumerate(combinations):
+        # Try to resolve to a specific subclass
+        try:
+            ws = combo.wordsum
+        except WordSum.DoesNotExist:
+            continue
+
+        combo_words = [
+            {"text": ws.addend1, "seq": i, "group": 0},
+            {"text": ws.addend2, "seq": i, "group": 0},
+            {"text": ws.sum_word, "seq": i, "group": 1},
+        ]
+        words.extend(combo_words)
+        sequences.append({
+            "type": "word_sum",
+            "num_slots": 3,
+            "operators": ["+", "="],
+            "slot_groups": [[0], [0], [1]],
+        })
+
     random.shuffle(words)
 
-    # Build equation data for the template
-    equations = [{"id": ws.id} for ws in word_sums]
-
     return render(request, "game/puzzle.html", {
+        "puzzle": p,
         "words_json": json.dumps(words),
-        "equations_json": json.dumps(equations),
+        "sequences_json": json.dumps(sequences),
     })
