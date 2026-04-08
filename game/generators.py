@@ -20,7 +20,8 @@ AVAILABLE_MODELS = {
 }
 
 DEFAULT_MODEL = "word2vec-google-news-300"
-MIN_SIMILARITY = 0.50
+MIN_SIMILARITY = 0.3
+MIN_REFINED_SIMILARITY = 0.6
 MIN_GAP_RATIO = 1.05
 MAX_SYNONYM_SIMILARITY = 0.50
 MAX_ATTEMPTS_PER_RESULT = 5000
@@ -141,8 +142,8 @@ def generate_word_sums(count=5, model_name=None, related_pairs=False):
             continue
         seen.add(triple)
 
-        addends, sum_word, _ = _best_arrangement(model, (w1, w2, w3))
-        if addends is None:
+        addends, sum_word, best_sim = _best_arrangement(model, (w1, w2, w3))
+        if addends is None or best_sim < MIN_REFINED_SIMILARITY:
             continue
 
         results.append({

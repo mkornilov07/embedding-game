@@ -202,11 +202,81 @@
       font-size: 0.95rem;
       margin-bottom: 1.5rem;
     }
+
+    .drop-box.slot-wrong {
+      border-color: #e53e3e;
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .drop-box.slot-correct {
+      border-color: #10b981;
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+      color: #4a5568;
+    }
+
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: #cbd5e0;
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: #4299e1;
+    }
+
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(18px);
+    }
   </style>
 </head>
 <body>
   <h1>{{ puzzle.name }}</h1>
   {% if puzzle.created_by %}<div class="author">by {{ puzzle.created_by.username }}</div>{% endif %}
+
+  <div class="toggle-row">
+    <label class="toggle">
+      <input type="checkbox" id="error-check-toggle">
+      <span class="toggle-slider"></span>
+    </label>
+    <span>Error checking</span>
+  </div>
 
   <div class="word-bank" id="word-bank"></div>
 
@@ -227,6 +297,7 @@
     const words = {{ words_json|safe }};
     const combinations = {{ combinations_json|safe }};
     const checkUrl = "{% url 'check_puzzle' puzzle.pk %}";
+    const checkRowUrl = "{% url 'check_row' puzzle.pk %}";
     const csrfToken = "{{ csrf_token }}";
 
     const bank = document.getElementById("word-bank");
@@ -299,6 +370,7 @@
       box.textContent = words[bubble.dataset.index].text;
       box.dataset.wordIndex = bubble.dataset.index;
       box.classList.add("filled");
+      checkRowIfFull(box.dataset.combo);
       checkAllFilled();
     }
 
@@ -342,6 +414,7 @@
       const box = e.currentTarget;
       if (box.dataset.wordIndex === undefined) return;
 
+      const comboIdx = box.dataset.combo;
       const idx = box.dataset.wordIndex;
       const bubble = bank.querySelector(`[data-index="${idx}"]`);
       bubble.classList.remove("placed");
@@ -349,7 +422,55 @@
       box.textContent = "";
       delete box.dataset.wordIndex;
       box.classList.remove("filled");
+
+      clearRowState(comboIdx);
     }
+
+    function clearRowState(comboIdx) {
+      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
+      boxes.forEach(b => {
+        b.classList.remove("slot-wrong", "slot-correct");
+      });
+    }
+
+    function checkRowIfFull(comboIdx) {
+      if (!document.getElementById("error-check-toggle").checked) return;
+
+      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
+      const allFilled = Array.from(boxes).every(b => b.dataset.wordIndex !== undefined);
+      if (!allFilled) return;
+
+      const slotWords = Array.from(boxes).map(b => words[b.dataset.wordIndex].text);
+
+      fetch(checkRowUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken,
+        },
+        body: JSON.stringify({ words: slotWords }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          const wrongSet = new Set(data.wrong_slots);
+          boxes.forEach((box, j) => {
+            box.classList.remove("slot-wrong", "slot-correct");
+            if (wrongSet.has(j)) {
+              box.classList.add("slot-wrong");
+            } else {
+              box.classList.add("slot-correct");
+            }
+          });
+        });
+    }
+
+    document.getElementById("error-check-toggle").addEventListener("change", function () {
+      if (this.checked) {
+        combinations.forEach((_, i) => checkRowIfFull(String(i)));
+      } else {
+        combinations.forEach((_, i) => clearRowState(String(i)));
+      }
+    });
 
     // Check if all boxes are filled, then verify with backend
     function checkAllFilled() {

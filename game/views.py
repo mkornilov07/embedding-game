@@ -85,6 +85,52 @@ def check_puzzle(request, pk):
     return JsonResponse({"correct": correct})
 
 
+@require_POST
+def check_row(request, pk):
+    """Check a single filled row against the puzzle's word sums.
+
+    Returns which slots are wrong:
+    - If 2 of the 3 words match a word sum (in valid positions), only the odd one out is marked wrong.
+    - Otherwise all 3 are marked wrong.
+    """
+    p = get_object_or_404(Puzzle, pk=pk)
+    data = json.loads(request.body)
+    slot_words = data["words"]  # [addend_slot1, addend_slot2, sum_slot]
+
+    word_sums = []
+    for combo in p.combinations.all():
+        try:
+            ws = combo.wordsum
+            word_sums.append((frozenset({ws.addend1, ws.addend2}), ws.sum_word))
+        except WordSum.DoesNotExist:
+            continue
+
+    addends = frozenset(slot_words[:2])
+    sum_word = slot_words[2]
+
+    # Exact match
+    if (addends, sum_word) in word_sums:
+        return JsonResponse({"wrong_slots": []})
+
+    # Check if 2 of 3 match — addends correct, sum wrong
+    for ws_addends, ws_sum in word_sums:
+        if addends == ws_addends:
+            return JsonResponse({"wrong_slots": [2]})
+
+    # Check if one addend + sum match — the other addend is wrong
+    for ws_addends, ws_sum in word_sums:
+        if sum_word == ws_sum:
+            for i in range(2):
+                if slot_words[i] in ws_addends:
+                    other = 1 - i
+                    return JsonResponse({"wrong_slots": [other]})
+
+    # Check if sum is correct for some word sum, and one addend is in that word sum
+    # (already covered above)
+
+    return JsonResponse({"wrong_slots": [0, 1, 2]})
+
+
 def register(request):
     if request.method == "POST":
         form = UserCreationForm(request.POST)
