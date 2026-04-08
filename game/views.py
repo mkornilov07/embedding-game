@@ -121,3 +121,11 @@ def save_puzzle(request):
         )
 
     return JsonResponse({"id": puzzle.pk})
+
+
+@login_required
+@require_POST
+def delete_puzzle(request, pk):
+    puzzle = get_object_or_404(Puzzle, pk=pk, created_by=request.user)
+    puzzle.delete()
+    return JsonResponse({"ok": True})

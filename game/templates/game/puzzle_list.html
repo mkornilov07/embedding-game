@@ -76,6 +76,23 @@
       color: #718096;
       margin-top: 0.15rem;
     }
+    .puzzle-item {
+      position: relative;
+    }
+    .delete-btn {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      background: none;
+      border: none;
+      color: #a0aec0;
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 0.2rem 0.4rem;
+      border-radius: 0.25rem;
+      line-height: 1;
+    }
+    .delete-btn:hover { color: #e53e3e; background: #fee2e2; }
   </style>
 </head>
 <body>
@@ -94,14 +111,34 @@
   {% endif %}
   <div class="puzzle-list">
     {% for p in puzzles %}
-      <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
-        {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
-        {{ p.name }}
-        {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
-      </a>
+      <div class="puzzle-item">
+        <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
+          {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
+          {{ p.name }}
+          {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
+        </a>
+        {% if p.created_by == user %}<button class="delete-btn" onclick="deletePuzzle({{ p.pk }}, '{{ p.name|escapejs }}')">&times;</button>{% endif %}
+      </div>
     {% empty %}
       <p class="empty">No puzzles yet.</p>
     {% endfor %}
   </div>
+
+  <script>
+    const csrfToken = "{{ csrf_token }}";
+
+    function deletePuzzle(id, name) {
+      if (!confirm(`Delete "${name}"?`)) return;
+
+      fetch(`/puzzle/${id}/delete/`, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken },
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) location.reload();
+        });
+    }
+  </script>
 </body>
 </html>
