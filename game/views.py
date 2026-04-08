@@ -9,6 +9,7 @@ from django.views.decorators.http import require_POST
 
 from django.contrib.auth.decorators import login_required
 
+from .generators import AVAILABLE_MODELS, generate_word_sums
 from .models import Puzzle, PuzzleCompletion, WordSum
 
 
@@ -98,7 +99,9 @@ def register(request):
 
 @login_required
 def create_puzzle(request):
-    return render(request, "game/create_puzzle.html")
+    return render(request, "game/create_puzzle.html", {
+        "available_models": AVAILABLE_MODELS,
+    })
 
 
 @login_required
@@ -129,3 +132,22 @@ def delete_puzzle(request, pk):
     puzzle = get_object_or_404(Puzzle, pk=pk, created_by=request.user)
     puzzle.delete()
     return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def generate_combinations(request):
+    data = json.loads(request.body)
+    gen_type = data.get("type", "word_sum")
+    count = min(data.get("count", 5), 5)
+
+    model_name = data.get("model")
+
+    related_pairs = data.get("related_pairs", False)
+
+    if gen_type == "word_sum":
+        combos = generate_word_sums(count, model_name=model_name, related_pairs=related_pairs)
+    else:
+        return JsonResponse({"error": f"Unknown type: {gen_type}"}, status=400)
+
+    return JsonResponse({"combinations": combos})

@@ -68,9 +68,62 @@
     .btn-add {
       background: #edf2f7;
       color: #4a5568;
-      align-self: flex-start;
     }
     .btn-add:hover { background: #e2e8f0; }
+    .btn-generate {
+      background: #ebf8ff;
+      color: #4299e1;
+    }
+    .btn-generate:hover { background: #bee3f8; }
+    .btn-generate:disabled { background: #edf2f7; color: #a0aec0; cursor: default; }
+    .btn-clear {
+      background: #fff5f5;
+      color: #e53e3e;
+    }
+    .btn-clear:hover { background: #fee2e2; }
+    .btn-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .gen-panel {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .gen-panel h3 {
+      font-size: 1rem;
+      color: #4a5568;
+      margin: 0;
+    }
+    .gen-field {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .gen-field label {
+      white-space: nowrap;
+      min-width: 80px;
+      font-size: 0.9rem;
+      margin: 0;
+    }
+    .gen-field select, .gen-field input[type="number"] {
+      padding: 0.4rem;
+      border: 1px solid #cbd5e0;
+      border-radius: 0.25rem;
+      font-size: 0.9rem;
+      flex: 1;
+    }
+    .gen-field input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+    }
     .btn-save {
       background: #4299e1;
       color: #fff;
@@ -98,7 +151,30 @@
     <div>
       <label>Word Sums</label>
       <div class="word-sums-list" id="word-sums-list"></div>
-      <button class="btn btn-add" onclick="addWordSum()" style="margin-top: 0.75rem">+ Add Word Sum</button>
+      <div class="btn-row">
+        <button class="btn btn-add" onclick="addWordSum()">+ Add Word Sum</button>
+        <button class="btn btn-clear" onclick="clearAll()">Clear All</button>
+      </div>
+      <div class="gen-panel">
+        <h3>Generate</h3>
+        <div class="gen-field">
+          <label for="model-select">Model</label>
+          <select id="model-select">
+            {% for key, label in available_models.items %}
+              <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="gen-field">
+          <label for="gen-count">Count</label>
+          <input type="number" id="gen-count" value="5" min="1" max="5">
+        </div>
+        <div class="gen-field">
+          <label for="related-pairs">Related pairs</label>
+          <input type="checkbox" id="related-pairs">
+        </div>
+        <button class="btn btn-generate" id="generate-btn" onclick="generateWordSums()">Generate Word Sums</button>
+      </div>
     </div>
 
     <div class="error" id="error" style="display:none"></div>
@@ -108,27 +184,67 @@
   <script>
     const csrfToken = "{{ csrf_token }}";
     const saveUrl = "{% url 'save_puzzle' %}";
+    const generateUrl = "{% url 'generate_combinations' %}";
     const list = document.getElementById("word-sums-list");
     let rowCount = 0;
 
-    function addWordSum() {
+    function addWordSum(addend1, addend2, sumWord) {
       const row = document.createElement("div");
       row.className = "word-sum-row";
       row.innerHTML = `
-        <input type="text" placeholder="word 1" data-field="addend1">
+        <input type="text" placeholder="word 1" data-field="addend1" value="${addend1 || ''}">
         <span class="op">+</span>
-        <input type="text" placeholder="word 2" data-field="addend2">
+        <input type="text" placeholder="word 2" data-field="addend2" value="${addend2 || ''}">
         <span class="op">=</span>
-        <input type="text" placeholder="result" data-field="sum_word">
+        <input type="text" placeholder="result" data-field="sum_word" value="${sumWord || ''}">
         <button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>
       `;
       list.appendChild(row);
-      row.querySelector("input").focus();
+      if (!addend1) row.querySelector("input").focus();
       rowCount++;
     }
 
     // Start with one row
     addWordSum();
+
+    function clearAll() {
+      list.innerHTML = "";
+    }
+
+    function generateWordSums() {
+      const btn = document.getElementById("generate-btn");
+      const model = document.getElementById("model-select").value;
+      const count = parseInt(document.getElementById("gen-count").value) || 5;
+      const relatedPairs = document.getElementById("related-pairs").checked;
+      btn.disabled = true;
+      btn.textContent = "Generating...";
+
+      fetch(generateUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken,
+        },
+        body: JSON.stringify({ type: "word_sum", count, model, related_pairs: relatedPairs }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.combinations) {
+            for (const combo of data.combinations) {
+              addWordSum(combo.addend1, combo.addend2, combo.sum_word);
+            }
+          }
+        })
+        .catch(() => {
+          const errorEl = document.getElementById("error");
+          errorEl.textContent = "Failed to generate.";
+          errorEl.style.display = "block";
+        })
+        .finally(() => {
+          btn.disabled = false;
+          btn.textContent = "Generate Word Sums";
+        });
+    }
 
     function savePuzzle() {
       const name = document.getElementById("puzzle-name").value.trim();
