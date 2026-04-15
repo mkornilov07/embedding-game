@@ -160,6 +160,7 @@
         <div class="gen-field">
           <label for="model-select">Model</label>
           <select id="model-select">
+            <option value="curated">Pre-generated</option>
             {% for key, label in available_models.items %}
               <option value="{{ key }}">{{ label }}</option>
             {% endfor %}
@@ -169,7 +170,7 @@
           <label for="gen-count">Count</label>
           <input type="number" id="gen-count" value="5" min="1" max="5">
         </div>
-        <div class="gen-field">
+        <div class="gen-field" id="related-pairs-field">
           <label for="related-pairs">Related pairs</label>
           <input type="checkbox" id="related-pairs">
         </div>
@@ -186,7 +187,18 @@
     const saveUrl = "{% url 'save_puzzle' %}";
     const generateUrl = "{% url 'generate_combinations' %}";
     const list = document.getElementById("word-sums-list");
+    const modelSelect = document.getElementById("model-select");
+    const relatedField = document.getElementById("related-pairs-field");
+    const genBtn = document.getElementById("generate-btn");
     let rowCount = 0;
+
+    function updateGenUI() {
+      const isCurated = modelSelect.value === "curated";
+      relatedField.style.display = isCurated ? "none" : "flex";
+      genBtn.textContent = isCurated ? "Sample Word Sums" : "Generate Word Sums";
+    }
+    modelSelect.addEventListener("change", updateGenUI);
+    updateGenUI();
 
     function addWordSum(addend1, addend2, sumWord) {
       const row = document.createElement("div");
@@ -217,7 +229,7 @@
       const count = parseInt(document.getElementById("gen-count").value) || 5;
       const relatedPairs = document.getElementById("related-pairs").checked;
       btn.disabled = true;
-      btn.textContent = "Generating...";
+      btn.textContent = modelSelect.value === "curated" ? "Sampling..." : "Generating...";
 
       fetch(generateUrl, {
         method: "POST",
@@ -242,7 +254,7 @@
         })
         .finally(() => {
           btn.disabled = false;
-          btn.textContent = "Generate Word Sums";
+          updateGenUI();
         });
     }
 

@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 
 from django.contrib.auth.decorators import login_required
 
-from .generators import AVAILABLE_MODELS, generate_word_sums
+from .generators import AVAILABLE_MODELS, generate_curated_word_sums, generate_word_sums
 from .models import Puzzle, PuzzleCompletion, WordSum
 
 
@@ -192,7 +192,10 @@ def generate_combinations(request):
     related_pairs = data.get("related_pairs", False)
 
     if gen_type == "word_sum":
-        combos = generate_word_sums(count, model_name=model_name, related_pairs=related_pairs)
+        if model_name == "curated":
+            combos = generate_curated_word_sums(count)
+        else:
+            combos = generate_word_sums(count, model_name=model_name, related_pairs=related_pairs)
     else:
         return JsonResponse({"error": f"Unknown type: {gen_type}"}, status=400)
 

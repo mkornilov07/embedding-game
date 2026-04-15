@@ -1,3 +1,4 @@
+import json
 import os
 import random
 from itertools import permutations
@@ -156,6 +157,25 @@ def generate_word_sums(count=5, model_name=None, related_pairs=False):
     return results
 
 
+CURATED_PATH = os.path.join(os.path.dirname(__file__), "word_sums.json")
+_curated = None
+
+
+def _load_curated():
+    global _curated
+    if _curated is None:
+        with open(CURATED_PATH, "r", encoding="utf-8") as f:
+            _curated = json.load(f)
+    return _curated
+
+
+def generate_curated_word_sums(count=5):
+    """Pick random word sums from the curated JSON list."""
+    pool = _load_curated()
+    selected = random.sample(pool, min(count, len(pool)))
+    return [{"type": "word_sum", **s} for s in selected]
+
+
 def display_combinations(combinations):
     for combo in combinations:
         if combo["type"] == "word_sum":
@@ -164,6 +184,10 @@ def display_combinations(combinations):
 
 if __name__ == "__main__":
     import sys
-    model_name = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
-    print(f"Using: {AVAILABLE_MODELS.get(model_name, model_name)}")
-    display_combinations(generate_word_sums(model_name=model_name))
+    if len(sys.argv) > 1 and sys.argv[1] == "curated":
+        print("=== Curated ===")
+        display_combinations(generate_curated_word_sums(5))
+    else:
+        model_name = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL
+        print(f"Using: {AVAILABLE_MODELS.get(model_name, model_name)}")
+        display_combinations(generate_word_sums(model_name=model_name))
