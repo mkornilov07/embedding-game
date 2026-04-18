@@ -212,7 +212,7 @@
           <select id="model-select">
             <option value="curated">Pre-generated</option>
             {% for key, label in available_models.items %}
-              <option value="{{ key }}" {% if key == "glove-wiki-gigaword-300" %}selected{% endif %}>{{ label }}</option>
+              <option value="{{ key }}" {% if key == "conceptnet-numberbatch-en" %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
@@ -245,16 +245,16 @@
             </div>
             <div class="gen-field" id="refine-iters-field">
               <label for="refine-iters" title="Number of substitution passes that tighten each triple (C−B → A, C−A → B, A+B → C). Higher = more refined triples but slower and more can fail the synonym check.">Refine iters</label>
-              <input type="range" id="refine-iters" min="0" max="20" value="3">
-              <span class="range-value" id="refine-iters-val">3</span>
+              <input type="range" id="refine-iters" min="0" max="20" value="1">
+              <span class="range-value" id="refine-iters-val">1</span>
             </div>
             <div class="gen-field" id="min-sim-field">
               <label for="min-sim" title="Lower bound on the raw top-candidate similarity during sampling. Triples whose best candidate scores below this are rejected before refinement. Cosmul and cosadd use different scales; defaults auto-swap when the 3CosMul toggle changes.">Min similarity</label>
-              <input type="number" id="min-sim" value="0.65" min="0" max="2" step="0.01">
+              <input type="number" id="min-sim" value="0.6" min="0" max="2" step="0.01">
             </div>
             <div class="gen-field" id="min-refined-sim-field">
               <label for="min-refined-sim" title="Final quality gate: the best A+B=C arrangement must score at least this after refinement. Higher = cleaner sums, fewer results.">Min refined sim.</label>
-              <input type="number" id="min-refined-sim" value="0.65" min="0" max="2" step="0.01">
+              <input type="number" id="min-refined-sim" value="0.6" min="0" max="2" step="0.01">
             </div>
             <div class="gen-field" id="min-gap-ratio-field">
               <label for="min-gap-ratio" title="The top candidate's similarity must exceed the runner-up's by this factor. Rejects ambiguous triples where two different sum-words are almost equally good.">Min gap ratio</label>
@@ -262,7 +262,7 @@
             </div>
             <div class="gen-field" id="max-syn-sim-field">
               <label for="max-syn-sim" title="Reject triples where any pair of words has cosine similarity above this. Prevents near-synonyms like (car, automobile, vehicle) which are trivial sums.">Max synonym sim.</label>
-              <input type="number" id="max-syn-sim" value="0.6" min="0" max="1" step="0.01">
+              <input type="number" id="max-syn-sim" value="0.5" min="0" max="1" step="0.01">
             </div>
           </div>
         </details>
@@ -308,7 +308,7 @@
     const cosmulCb = document.getElementById("cosmul");
     const minSimInput = document.getElementById("min-sim");
     const minRefinedSimInput = document.getElementById("min-refined-sim");
-    const COSADD_DEFAULTS = { minSim: 0.65, minRefinedSim: 0.65 };
+    const COSADD_DEFAULTS = { minSim: 0.6, minRefinedSim: 0.6 };
     const COSMUL_DEFAULTS = { minSim: 0.25, minRefinedSim: 0.5 };
     cosmulCb.addEventListener("change", () => {
       const from = cosmulCb.checked ? COSADD_DEFAULTS : COSMUL_DEFAULTS;

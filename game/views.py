@@ -194,7 +194,7 @@ def generate_combinations(request):
     cosmul = data.get("cosmul", False)
     abtt = data.get("abtt", True)
     top_n_vocab = int(data.get("top_n_vocab") or 0)
-    refine_iterations = int(data.get("refine_iterations") or 3)
+    refine_iterations = int(data.get("refine_iterations") or 1)
     min_similarity = data.get("min_similarity")
     min_refined_similarity = data.get("min_refined_similarity")
     min_gap_ratio = data.get("min_gap_ratio")
