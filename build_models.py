@@ -1,4 +1,9 @@
 """Download gensim models, filter to top 10k nouns/verbs, save as .kv files."""
+import gzip
+import os
+import shutil
+import urllib.request
+
 import nltk
 import numpy as np
 import gensim.downloader as api
@@ -23,6 +28,9 @@ MODELS = [
 for name in MODELS:
     out_path = f"data/{name}.kv"
     print(f"\n=== {name} ===")
+    if os.path.exists(out_path):
+        print(f"{out_path} already exists, skipping.")
+        continue
     print("Loading...")
     full_model = api.load(name)
 
@@ -35,3 +43,40 @@ for name in MODELS:
     small.add_vectors(filtered, vectors)
     small.save(out_path)
     print(f"Saved {len(filtered)} words to {out_path}")
+
+
+# === ConceptNet Numberbatch (English) ===
+# Speer, Chin, Havasi (2017), AAAI. Retrofitted embeddings — semantically
+# cleaner neighbors than pure distributional vectors. Not on gensim-data, so
+# fetched directly. Vocabulary is aligned against glove-wiki-gigaword-300 so
+# ordering matches (frequency-sorted via glove), and top-N vocab capping in
+# the generator works the same way.
+NUMBERBATCH_URL = "https://conceptnet.s3.amazonaws.com/downloads/2019/numberbatch/numberbatch-en-19.08.txt.gz"
+NUMBERBATCH_KV = "data/conceptnet-numberbatch-en.kv"
+NUMBERBATCH_GZ = "data/numberbatch-en-19.08.txt.gz"
+NUMBERBATCH_TXT = "data/numberbatch-en-19.08.txt"
+NUMBERBATCH_REF = "data/glove-wiki-gigaword-300.kv"
+
+print("\n=== conceptnet-numberbatch-en ===")
+if os.path.exists(NUMBERBATCH_KV):
+    print(f"{NUMBERBATCH_KV} already exists, skipping.")
+else:
+    if not os.path.exists(NUMBERBATCH_GZ):
+        print(f"Downloading {NUMBERBATCH_URL} (~1GB gzipped)...")
+        urllib.request.urlretrieve(NUMBERBATCH_URL, NUMBERBATCH_GZ)
+    if not os.path.exists(NUMBERBATCH_TXT):
+        print("Decompressing...")
+        with gzip.open(NUMBERBATCH_GZ, "rb") as fin, open(NUMBERBATCH_TXT, "wb") as fout:
+            shutil.copyfileobj(fin, fout)
+    print("Loading numberbatch text...")
+    nb_model = KeyedVectors.load_word2vec_format(NUMBERBATCH_TXT, binary=False)
+
+    print(f"Loading reference vocab from {NUMBERBATCH_REF}...")
+    ref_model = KeyedVectors.load(NUMBERBATCH_REF)
+    words = [w for w in ref_model.index_to_key if w in nb_model.key_to_index]
+
+    vectors = np.array([nb_model[w] for w in words])
+    small = KeyedVectors(nb_model.vector_size)
+    small.add_vectors(words, vectors)
+    small.save(NUMBERBATCH_KV)
+    print(f"Saved {len(words)} words to {NUMBERBATCH_KV}")

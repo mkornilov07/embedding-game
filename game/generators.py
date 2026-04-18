@@ -19,6 +19,7 @@ AVAILABLE_MODELS = {
     "glove-twitter-100": "GloVe Twitter (100d)",
     "glove-twitter-200": "GloVe Twitter (200d)",
     "fasttext-wiki-news-subwords-300": "FastText Wiki News (300d)",
+    "conceptnet-numberbatch-en": "ConceptNet Numberbatch (300d)",
 }
 
 DEFAULT_MODEL = "glove-wiki-gigaword-300"
@@ -157,7 +158,7 @@ def generate_word_sums(count=5, model_name=None, related_pairs=False,
         max_synonym_similarity: reject triples where any pair exceeds this.
     """
     model, vocab = _load_model(model_name or DEFAULT_MODEL, abtt=abtt)
-    vocab_pool = vocab[:top_n_vocab] if top_n_vocab else vocab
+    vocab_pool = vocab[:top_n_vocab] if top_n_vocab and top_n_vocab > 0 else vocab
 
     similar = model.most_similar_cosmul if cosmul else model.most_similar
     if min_similarity is None:

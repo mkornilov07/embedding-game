@@ -35,16 +35,17 @@ def puzzle(request, pk):
     words = []
     combinations = []
 
-    for i, combo in enumerate(db_combinations):
+    for combo in db_combinations:
         try:
             ws = combo.wordsum
         except WordSum.DoesNotExist:
             continue
 
+        idx = len(combinations)
         words.extend([
-            {"text": ws.addend1, "combo": i},
-            {"text": ws.addend2, "combo": i},
-            {"text": ws.sum_word, "combo": i},
+            {"text": ws.addend1, "combo": idx},
+            {"text": ws.addend2, "combo": idx},
+            {"text": ws.sum_word, "combo": idx},
         ])
         combinations.append({"id": combo.pk, "type": "word_sum"})
 
@@ -192,8 +193,8 @@ def generate_combinations(request):
     related_pairs = data.get("related_pairs", True)
     cosmul = data.get("cosmul", False)
     abtt = data.get("abtt", True)
-    top_n_vocab = int(data.get("top_n_vocab", 3000) or 0)
-    refine_iterations = int(data.get("refine_iterations", 3))
+    top_n_vocab = int(data.get("top_n_vocab") or 0)
+    refine_iterations = int(data.get("refine_iterations") or 3)
     min_similarity = data.get("min_similarity")
     min_refined_similarity = data.get("min_refined_similarity")
     min_gap_ratio = data.get("min_gap_ratio")
@@ -214,7 +215,13 @@ def generate_combinations(request):
                 kwargs["min_gap_ratio"] = float(min_gap_ratio)
             if max_synonym_similarity is not None:
                 kwargs["max_synonym_similarity"] = float(max_synonym_similarity)
-            combos = generate_word_sums(count, **kwargs)
+            try:
+                combos = generate_word_sums(count, **kwargs)
+            except FileNotFoundError:
+                return JsonResponse(
+                    {"error": f"Model file for {model_name!r} not found. Run build_models.py."},
+                    status=400,
+                )
     else:
         return JsonResponse({"error": f"Unknown type: {gen_type}"}, status=400)
 

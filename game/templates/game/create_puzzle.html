@@ -385,6 +385,12 @@
       })
         .then(r => r.json())
         .then(data => {
+          const errorEl = document.getElementById("error");
+          if (data.error) {
+            errorEl.textContent = data.error;
+            errorEl.style.display = "block";
+            return;
+          }
           if (data.combinations) {
             for (const combo of data.combinations) {
               const metrics = combo.addend_similarity !== undefined
