@@ -189,13 +189,32 @@ def generate_combinations(request):
 
     model_name = data.get("model")
 
-    related_pairs = data.get("related_pairs", False)
+    related_pairs = data.get("related_pairs", True)
+    cosmul = data.get("cosmul", False)
+    abtt = data.get("abtt", True)
+    top_n_vocab = int(data.get("top_n_vocab", 3000) or 0)
+    refine_iterations = int(data.get("refine_iterations", 3))
+    min_similarity = data.get("min_similarity")
+    min_refined_similarity = data.get("min_refined_similarity")
+    min_gap_ratio = data.get("min_gap_ratio")
+    max_synonym_similarity = data.get("max_synonym_similarity")
 
     if gen_type == "word_sum":
         if model_name == "curated":
             combos = generate_curated_word_sums(count)
         else:
-            combos = generate_word_sums(count, model_name=model_name, related_pairs=related_pairs)
+            kwargs = dict(
+                model_name=model_name, related_pairs=related_pairs,
+                cosmul=cosmul, abtt=abtt, top_n_vocab=top_n_vocab,
+                refine_iterations=refine_iterations,
+                min_similarity=min_similarity,
+                min_refined_similarity=min_refined_similarity,
+            )
+            if min_gap_ratio is not None:
+                kwargs["min_gap_ratio"] = float(min_gap_ratio)
+            if max_synonym_similarity is not None:
+                kwargs["max_synonym_similarity"] = float(max_synonym_similarity)
+            combos = generate_word_sums(count, **kwargs)
     else:
         return JsonResponse({"error": f"Unknown type: {gen_type}"}, status=400)
 

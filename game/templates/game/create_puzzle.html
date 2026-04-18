@@ -52,6 +52,18 @@
       padding: 0 0.3rem;
     }
     .word-sum-row .remove-btn:hover { color: #c53030; }
+    .word-sum-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .word-sum-metrics {
+      font-size: 0.75rem;
+      color: #718096;
+      padding-left: 0.25rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .word-sums-list:not(.show-metrics) .word-sum-metrics { display: none; }
     .word-sums-list {
       display: flex;
       flex-direction: column;
@@ -120,9 +132,47 @@
       font-size: 0.9rem;
       flex: 1;
     }
+    .gen-field input[type="range"] { flex: 1; }
+    .gen-field .range-value {
+      font-variant-numeric: tabular-nums;
+      min-width: 2ch;
+      text-align: right;
+      color: #4a5568;
+      font-size: 0.9rem;
+    }
     .gen-field input[type="checkbox"] {
       width: 1rem;
       height: 1rem;
+    }
+    .gen-field label[title] { cursor: help; border-bottom: 1px dotted #a0aec0; }
+    .advanced-panel {
+      border-top: 1px solid #e2e8f0;
+      padding-top: 0.75rem;
+    }
+    .advanced-panel summary {
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #4a5568;
+      padding: 0.25rem 0;
+      user-select: none;
+      list-style: none;
+      font-weight: 500;
+    }
+    .advanced-panel summary::-webkit-details-marker { display: none; }
+    .advanced-panel summary::before {
+      content: "\25B8";
+      display: inline-block;
+      margin-right: 0.4rem;
+      transition: transform 0.15s;
+    }
+    .advanced-panel[open] summary::before {
+      transform: rotate(90deg);
+    }
+    .advanced-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
     }
     .btn-save {
       background: #4299e1;
@@ -158,22 +208,64 @@
       <div class="gen-panel">
         <h3>Generate</h3>
         <div class="gen-field">
-          <label for="model-select">Model</label>
+          <label for="model-select" title="Word embedding model used for vector arithmetic. 'Pre-generated' skips generation and samples from a curated JSON list.">Model</label>
           <select id="model-select">
             <option value="curated">Pre-generated</option>
             {% for key, label in available_models.items %}
-              <option value="{{ key }}">{{ label }}</option>
+              <option value="{{ key }}" {% if key == "glove-wiki-gigaword-300" %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="gen-field">
-          <label for="gen-count">Count</label>
+          <label for="gen-count" title="How many word sums to generate in this batch (max 5).">Count</label>
           <input type="number" id="gen-count" value="5" min="1" max="5">
         </div>
-        <div class="gen-field" id="related-pairs-field">
-          <label for="related-pairs">Related pairs</label>
-          <input type="checkbox" id="related-pairs">
-        </div>
+        <details class="advanced-panel" id="advanced-panel">
+          <summary>Advanced options</summary>
+          <div class="advanced-fields">
+            <div class="gen-field" id="show-sim-field">
+              <label for="show-sim" title="Show cosine similarity of the addends and of the sum_word to the vector sum of the addends, below each generated row.">Show similarity</label>
+              <input type="checkbox" id="show-sim">
+            </div>
+            <div class="gen-field" id="related-pairs-field">
+              <label for="related-pairs" title="Sample the second word from the first word's neighborhood (around the 10th most similar) instead of uniformly at random. Produces more semantically related pairs.">Related pairs</label>
+              <input type="checkbox" id="related-pairs" checked>
+            </div>
+            <div class="gen-field" id="cosmul-field">
+              <label for="cosmul" title="Use 3CosMul (Levy & Goldberg 2014, CoNLL) instead of 3CosAdd. Multiplies similarities instead of summing them, so no single cosine can dominate. Typically improves analogy accuracy.">3CosMul</label>
+              <input type="checkbox" id="cosmul">
+            </div>
+            <div class="gen-field" id="abtt-field">
+              <label for="abtt" title="All-but-the-top postprocessing (Mu & Viswanath 2018, ICLR): subtract the vector mean and project out the top D/100 principal components. Improves analogy and similarity tasks. Does a one-time SVD per model on first use.">All-but-the-top</label>
+              <input type="checkbox" id="abtt" checked>
+            </div>
+            <div class="gen-field" id="top-n-vocab-field">
+              <label for="top-n-vocab" title="Restrict seed vocabulary to the top-N most frequent tokens. KeyedVectors are sorted by frequency; capping avoids long-tail morphological junk and rare-word noise. Set to 0 for no cap.">Vocab top-N</label>
+              <input type="number" id="top-n-vocab" value="3000" min="0" step="1000">
+            </div>
+            <div class="gen-field" id="refine-iters-field">
+              <label for="refine-iters" title="Number of substitution passes that tighten each triple (C−B → A, C−A → B, A+B → C). Higher = more refined triples but slower and more can fail the synonym check.">Refine iters</label>
+              <input type="range" id="refine-iters" min="0" max="20" value="3">
+              <span class="range-value" id="refine-iters-val">3</span>
+            </div>
+            <div class="gen-field" id="min-sim-field">
+              <label for="min-sim" title="Lower bound on the raw top-candidate similarity during sampling. Triples whose best candidate scores below this are rejected before refinement. Cosmul and cosadd use different scales; defaults auto-swap when the 3CosMul toggle changes.">Min similarity</label>
+              <input type="number" id="min-sim" value="0.65" min="0" max="2" step="0.01">
+            </div>
+            <div class="gen-field" id="min-refined-sim-field">
+              <label for="min-refined-sim" title="Final quality gate: the best A+B=C arrangement must score at least this after refinement. Higher = cleaner sums, fewer results.">Min refined sim.</label>
+              <input type="number" id="min-refined-sim" value="0.65" min="0" max="2" step="0.01">
+            </div>
+            <div class="gen-field" id="min-gap-ratio-field">
+              <label for="min-gap-ratio" title="The top candidate's similarity must exceed the runner-up's by this factor. Rejects ambiguous triples where two different sum-words are almost equally good.">Min gap ratio</label>
+              <input type="number" id="min-gap-ratio" value="1" min="1" max="2" step="0.01">
+            </div>
+            <div class="gen-field" id="max-syn-sim-field">
+              <label for="max-syn-sim" title="Reject triples where any pair of words has cosine similarity above this. Prevents near-synonyms like (car, automobile, vehicle) which are trivial sums.">Max synonym sim.</label>
+              <input type="number" id="max-syn-sim" value="0.6" min="0" max="1" step="0.01">
+            </div>
+          </div>
+        </details>
         <button class="btn btn-generate" id="generate-btn" onclick="generateWordSums()">Generate Word Sums</button>
       </div>
     </div>
@@ -188,31 +280,66 @@
     const generateUrl = "{% url 'generate_combinations' %}";
     const list = document.getElementById("word-sums-list");
     const modelSelect = document.getElementById("model-select");
-    const relatedField = document.getElementById("related-pairs-field");
+    const advancedPanel = document.getElementById("advanced-panel");
     const genBtn = document.getElementById("generate-btn");
+    const showSimCb = document.getElementById("show-sim");
+    showSimCb.addEventListener("change", () => {
+      list.classList.toggle("show-metrics", showSimCb.checked);
+    });
     let rowCount = 0;
 
     function updateGenUI() {
       const isCurated = modelSelect.value === "curated";
-      relatedField.style.display = isCurated ? "none" : "flex";
+      advancedPanel.style.display = isCurated ? "none" : "block";
       genBtn.textContent = isCurated ? "Sample Word Sums" : "Generate Word Sums";
     }
     modelSelect.addEventListener("change", updateGenUI);
     updateGenUI();
 
-    function addWordSum(addend1, addend2, sumWord) {
-      const row = document.createElement("div");
-      row.className = "word-sum-row";
-      row.innerHTML = `
-        <input type="text" placeholder="word 1" data-field="addend1" value="${addend1 || ''}">
-        <span class="op">+</span>
-        <input type="text" placeholder="word 2" data-field="addend2" value="${addend2 || ''}">
-        <span class="op">=</span>
-        <input type="text" placeholder="result" data-field="sum_word" value="${sumWord || ''}">
-        <button class="remove-btn" onclick="this.parentElement.remove()">&times;</button>
+    const refineIters = document.getElementById("refine-iters");
+    const refineItersVal = document.getElementById("refine-iters-val");
+    refineIters.addEventListener("input", () => {
+      refineItersVal.textContent = refineIters.value;
+    });
+
+    // Auto-swap similarity-threshold defaults when 3CosMul toggles.
+    // Only swap when the value still matches the other mode's default,
+    // so manual edits aren't clobbered.
+    const cosmulCb = document.getElementById("cosmul");
+    const minSimInput = document.getElementById("min-sim");
+    const minRefinedSimInput = document.getElementById("min-refined-sim");
+    const COSADD_DEFAULTS = { minSim: 0.65, minRefinedSim: 0.65 };
+    const COSMUL_DEFAULTS = { minSim: 0.25, minRefinedSim: 0.5 };
+    cosmulCb.addEventListener("change", () => {
+      const from = cosmulCb.checked ? COSADD_DEFAULTS : COSMUL_DEFAULTS;
+      const to = cosmulCb.checked ? COSMUL_DEFAULTS : COSADD_DEFAULTS;
+      if (parseFloat(minSimInput.value) === from.minSim) {
+        minSimInput.value = to.minSim;
+      }
+      if (parseFloat(minRefinedSimInput.value) === from.minRefinedSim) {
+        minRefinedSimInput.value = to.minRefinedSim;
+      }
+    });
+
+    function addWordSum(addend1, addend2, sumWord, metrics) {
+      const item = document.createElement("div");
+      item.className = "word-sum-item";
+      const metricsHtml = metrics
+        ? `<div class="word-sum-metrics" title="Cosine similarity of the two addends (left) and cosine similarity between the sum_word and the vector sum of the two addends (right).">addend sim: ${metrics.addendSim.toFixed(3)} · sum sim: ${metrics.sumSim.toFixed(3)}</div>`
+        : "";
+      item.innerHTML = `
+        <div class="word-sum-row">
+          <input type="text" placeholder="word 1" data-field="addend1" value="${addend1 || ''}">
+          <span class="op">+</span>
+          <input type="text" placeholder="word 2" data-field="addend2" value="${addend2 || ''}">
+          <span class="op">=</span>
+          <input type="text" placeholder="result" data-field="sum_word" value="${sumWord || ''}">
+          <button class="remove-btn" onclick="this.closest('.word-sum-item').remove()">&times;</button>
+        </div>
+        ${metricsHtml}
       `;
-      list.appendChild(row);
-      if (!addend1) row.querySelector("input").focus();
+      list.appendChild(item);
+      if (!addend1) item.querySelector("input").focus();
       rowCount++;
     }
 
@@ -228,6 +355,14 @@
       const model = document.getElementById("model-select").value;
       const count = parseInt(document.getElementById("gen-count").value) || 5;
       const relatedPairs = document.getElementById("related-pairs").checked;
+      const cosmul = document.getElementById("cosmul").checked;
+      const abtt = document.getElementById("abtt").checked;
+      const topNVocab = parseInt(document.getElementById("top-n-vocab").value) || 0;
+      const refineIterations = parseInt(refineIters.value);
+      const minSimilarity = parseFloat(minSimInput.value);
+      const minRefinedSimilarity = parseFloat(minRefinedSimInput.value);
+      const minGapRatio = parseFloat(document.getElementById("min-gap-ratio").value);
+      const maxSynonymSimilarity = parseFloat(document.getElementById("max-syn-sim").value);
       btn.disabled = true;
       btn.textContent = modelSelect.value === "curated" ? "Sampling..." : "Generating...";
 
@@ -237,13 +372,25 @@
           "Content-Type": "application/json",
           "X-CSRFToken": csrfToken,
         },
-        body: JSON.stringify({ type: "word_sum", count, model, related_pairs: relatedPairs }),
+        body: JSON.stringify({
+          type: "word_sum", count, model,
+          related_pairs: relatedPairs,
+          cosmul, abtt, top_n_vocab: topNVocab,
+          refine_iterations: refineIterations,
+          min_similarity: minSimilarity,
+          min_refined_similarity: minRefinedSimilarity,
+          min_gap_ratio: minGapRatio,
+          max_synonym_similarity: maxSynonymSimilarity,
+        }),
       })
         .then(r => r.json())
         .then(data => {
           if (data.combinations) {
             for (const combo of data.combinations) {
-              addWordSum(combo.addend1, combo.addend2, combo.sum_word);
+              const metrics = combo.addend_similarity !== undefined
+                ? { addendSim: combo.addend_similarity, sumSim: combo.sum_similarity }
+                : null;
+              addWordSum(combo.addend1, combo.addend2, combo.sum_word, metrics);
             }
           }
         })
