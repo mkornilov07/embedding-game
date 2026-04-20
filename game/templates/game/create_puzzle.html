@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Create Puzzle</title>
+  <title>{% if puzzle %}Edit{% else %}Create{% endif %} Puzzle</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -190,12 +190,12 @@
 </head>
 <body>
   <div class="back"><a href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
-  <h1>Create Puzzle</h1>
+  <h1>{% if puzzle %}Edit{% else %}Create{% endif %} Puzzle</h1>
 
   <div class="form-area" id="form-area">
     <div>
       <label for="puzzle-name">Puzzle Name</label>
-      <input type="text" id="puzzle-name" placeholder="e.g. Compound Words">
+      <input type="text" id="puzzle-name" placeholder="e.g. Compound Words" value="{{ puzzle.name|default:'' }}">
     </div>
 
     <div>
@@ -271,13 +271,15 @@
     </div>
 
     <div class="error" id="error" style="display:none"></div>
-    <button class="btn btn-save" id="save-btn" onclick="savePuzzle()">Save Puzzle</button>
+    <button class="btn btn-save" id="save-btn" onclick="savePuzzle()">{% if puzzle %}Save Changes{% else %}Save Puzzle{% endif %}</button>
   </div>
 
   <script>
     const csrfToken = "{{ csrf_token }}";
     const saveUrl = "{% url 'save_puzzle' %}";
     const generateUrl = "{% url 'generate_combinations' %}";
+    const puzzleId = {% if puzzle %}{{ puzzle.pk }}{% else %}null{% endif %};
+    const initialWordSums = {{ word_sums_json|default:"[]"|safe }};
     const list = document.getElementById("word-sums-list");
     const modelSelect = document.getElementById("model-select");
     const advancedPanel = document.getElementById("advanced-panel");
@@ -343,8 +345,14 @@
       rowCount++;
     }
 
-    // Start with one row
-    addWordSum();
+    // Prefill existing rows when editing, otherwise start with one empty row.
+    if (initialWordSums.length > 0) {
+      for (const ws of initialWordSums) {
+        addWordSum(ws.addend1, ws.addend2, ws.sum_word);
+      }
+    } else {
+      addWordSum();
+    }
 
     function clearAll() {
       list.innerHTML = "";
@@ -450,7 +458,7 @@
           "Content-Type": "application/json",
           "X-CSRFToken": csrfToken,
         },
-        body: JSON.stringify({ name, word_sums: wordSums }),
+        body: JSON.stringify({ id: puzzleId, name, word_sums: wordSums }),
       })
         .then(r => r.json())
         .then(data => {

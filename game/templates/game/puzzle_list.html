@@ -79,19 +79,26 @@
     .puzzle-item {
       position: relative;
     }
-    .delete-btn {
+    .owner-actions {
       position: absolute;
       top: 0.75rem;
       right: 0.75rem;
+      display: flex;
+      gap: 0.1rem;
+    }
+    .icon-btn {
       background: none;
       border: none;
       color: #a0aec0;
-      font-size: 1.1rem;
+      font-size: 1rem;
       cursor: pointer;
       padding: 0.2rem 0.4rem;
       border-radius: 0.25rem;
       line-height: 1;
+      text-decoration: none;
     }
+    .edit-btn:hover { color: #4299e1; background: #ebf8ff; }
+    .delete-btn { font-size: 1.1rem; }
     .delete-btn:hover { color: #e53e3e; background: #fee2e2; }
   </style>
 </head>
@@ -117,7 +124,12 @@
           {{ p.name }}
           {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
         </a>
-        {% if p.created_by == user %}<button class="delete-btn" onclick="deletePuzzle({{ p.pk }}, '{{ p.name|escapejs }}')">&times;</button>{% endif %}
+        {% if p.created_by == user %}
+          <div class="owner-actions">
+            <a class="icon-btn edit-btn" href="{% url 'edit_puzzle' p.pk %}" title="Edit">&#9998;</a>
+            <button class="icon-btn delete-btn" onclick="deletePuzzle({{ p.pk }}, '{{ p.name|escapejs }}')" title="Delete">&times;</button>
+          </div>
+        {% endif %}
       </div>
     {% empty %}
       <p class="empty">No puzzles yet.</p>

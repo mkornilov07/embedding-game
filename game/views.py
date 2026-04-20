@@ -145,9 +145,23 @@ def register(request):
 
 
 @login_required
-def create_puzzle(request):
+def create_puzzle(request, pk=None):
+    existing = None
+    word_sums = []
+    if pk is not None:
+        existing = get_object_or_404(Puzzle, pk=pk, created_by=request.user)
+        for combo in existing.combinations.all():
+            try:
+                ws = combo.wordsum
+            except WordSum.DoesNotExist:
+                continue
+            word_sums.append({
+                "addend1": ws.addend1, "addend2": ws.addend2, "sum_word": ws.sum_word,
+            })
     return render(request, "game/create_puzzle.html", {
         "available_models": AVAILABLE_MODELS,
+        "puzzle": existing,
+        "word_sums_json": json.dumps(word_sums),
     })
 
 
@@ -157,11 +171,18 @@ def save_puzzle(request):
     data = json.loads(request.body)
     name = data.get("name", "").strip()
     word_sums = data.get("word_sums", [])
+    puzzle_id = data.get("id")
 
     if not name or not word_sums:
         return JsonResponse({"error": "Name and at least one word sum required."}, status=400)
 
-    puzzle = Puzzle.objects.create(name=name, created_by=request.user)
+    if puzzle_id is not None:
+        puzzle = get_object_or_404(Puzzle, pk=puzzle_id, created_by=request.user)
+        puzzle.name = name
+        puzzle.save()
+        puzzle.combinations.all().delete()
+    else:
+        puzzle = Puzzle.objects.create(name=name, created_by=request.user)
     for ws in word_sums:
         WordSum.objects.create(
             puzzle=puzzle,
