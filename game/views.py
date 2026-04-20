@@ -14,7 +14,7 @@ from .models import Puzzle, PuzzleCompletion, WordSum
 
 
 def puzzle_list(request):
-    puzzles = Puzzle.objects.select_related("created_by").all()
+    puzzles = Puzzle.objects.select_related("created_by").order_by("-pk")
     if request.user.is_authenticated:
         completed_ids = set(
             PuzzleCompletion.objects.filter(user=request.user).values_list("puzzle_id", flat=True)
