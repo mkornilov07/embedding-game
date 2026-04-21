@@ -1,0 +1,172 @@
+/* Shared word-puzzle board styles used by puzzle.html and duel.html.
+   Page-specific dimensions and overlay variants stay in the page templates. */
+
+.word-bank {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: center;
+  max-width: 700px;
+}
+
+.word-bubble {
+  background: #4299e1;
+  color: #fff;
+  padding: 0.5rem 1.2rem;
+  border-radius: 9999px;
+  font-size: 1.1rem;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  transition: transform 0.1s, box-shadow 0.1s, opacity 0.15s;
+}
+.word-bubble:active { cursor: grabbing; }
+.word-bubble.dragging { opacity: 0.5; transform: scale(1.05); }
+.word-bubble.placed { background: #a0aec0; cursor: default; }
+
+.equation {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.drop-box {
+  border: 2px dashed #a0aec0;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  font-weight: 500;
+  color: #2d3748;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drop-box.drag-over { border-color: #4299e1; background: #ebf8ff; }
+.drop-box.filled {
+  border-style: solid;
+  border-color: #4299e1;
+  background: #ebf8ff;
+  cursor: grab;
+}
+.drop-box.filled:active { cursor: grabbing; }
+.drop-box.dragging { opacity: 0.5; }
+.drop-box.slot-wrong {
+  border-color: #e53e3e;
+  background: #fee2e2;
+  color: #991b1b;
+}
+.drop-box.slot-correct {
+  border-color: #10b981;
+  background: #d1fae5;
+  color: #065f46;
+}
+/* Global hint: all slots filled but arrangement still wrong — right words, wrong groupings. */
+.drop-box.slot-yellow {
+  box-shadow: 0 0 0 3px #fbbf24, 0 0 14px rgba(251, 191, 36, 0.7);
+  animation: slot-yellow-pulse 1.4s ease-in-out infinite;
+}
+@keyframes slot-yellow-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px #fbbf24, 0 0 14px rgba(251, 191, 36, 0.7); }
+  50%      { box-shadow: 0 0 0 3px #f59e0b, 0 0 22px rgba(251, 191, 36, 0.95); }
+}
+
+.operator { color: #718096; }
+
+/* Collapsible "N solved ✓" group, placed at the top of the equations container. */
+.solved-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.solved-section[hidden] { display: none; }
+.solved-section:not([hidden]) {
+  animation: solved-section-enter 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes solved-section-enter {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.solved-header {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  background: #d1fae5;
+  color: #065f46;
+  border: 2px solid #10b981;
+  border-radius: 9999px;
+  padding: 0.4rem 1.1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  align-self: center;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.solved-header:hover { background: #a7f3d0; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25); }
+.solved-header:active { transform: scale(0.97); }
+.solved-chevron {
+  display: inline-block;
+  font-size: 0.7rem;
+  line-height: 1;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.solved-section:not(.collapsed) .solved-chevron { transform: rotate(180deg); }
+.solved-list-wrapper {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.solved-section.collapsed .solved-list-wrapper { grid-template-rows: 0fr; }
+.solved-list {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.solved-list > .equation { animation: solved-row-enter 0.3s cubic-bezier(0.2, 0.8, 0.3, 1); }
+@keyframes solved-row-enter {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Result overlay base + celebration fireworks */
+.overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+  animation: overlay-fade-in 0.3s ease;
+}
+.overlay.show { display: flex; }
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.fireworks {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 101;
+}
+.spark {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: spark 1s ease-out forwards;
+}
+@keyframes spark {
+  0%   { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0); }
+}

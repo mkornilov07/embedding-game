@@ -23,6 +23,16 @@ AVAILABLE_MODELS = {
 }
 
 DEFAULT_MODEL = "conceptnet-numberbatch-en"
+
+
+def available_local_models():
+    """Subset of AVAILABLE_MODELS whose .kv file is present on disk."""
+    return {
+        key: label
+        for key, label in AVAILABLE_MODELS.items()
+        if os.path.exists(os.path.join(DATA_DIR, f"{key}.kv"))
+    }
+
 MIN_SIMILARITY_COSADD = 0.60
 MIN_REFINED_SIMILARITY_COSADD = 0.60
 MIN_SIMILARITY_COSMUL = 0.25

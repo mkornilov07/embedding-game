@@ -161,6 +161,28 @@
 
     .error { color: #e53e3e; font-size: 0.9rem; margin-top: 0.5rem; }
 
+    .recent-opponents {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+    }
+    .recent-label { font-size: 0.8rem; color: #718096; }
+    .recent-chip {
+      background: #edf2f7;
+      color: #2d3748;
+      border: none;
+      border-radius: 9999px;
+      padding: 0.25rem 0.7rem;
+      font-size: 0.82rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .recent-chip:hover { background: #e2e8f0; }
+    .recent-chip:active { transform: scale(0.96); }
+
     .gen-toggle {
       display: flex; align-items: center; gap: 0.5rem;
       margin: 0.5rem 0 0.75rem;
@@ -332,6 +354,14 @@
         <div class="field">
           <label for="opp-username">Opponent username</label>
           <input type="text" id="opp-username" placeholder="username">
+          {% if recent_opponents %}
+            <div class="recent-opponents">
+              <span class="recent-label">Recent:</span>
+              {% for name in recent_opponents %}
+                <button type="button" class="recent-chip" data-username="{{ name }}">{{ name }}</button>
+              {% endfor %}
+            </div>
+          {% endif %}
         </div>
 
         <div class="gen-toggle">
@@ -396,16 +426,15 @@
 
     // Tab switching
     const tabs = document.querySelectorAll(".tab");
-    tabs.forEach(t => t.addEventListener("click", () => {
-      tabs.forEach(x => x.classList.remove("active"));
-      t.classList.add("active");
-      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
-      document.getElementById(`panel-${t.dataset.tab}`).classList.add("active");
-    }));
+    function activateTab(name) {
+      tabs.forEach(x => x.classList.toggle("active", x.dataset.tab === name));
+      document.querySelectorAll(".tab-panel").forEach(p => {
+        p.classList.toggle("active", p.id === `panel-${name}`);
+      });
+    }
+    tabs.forEach(t => t.addEventListener("click", () => activateTab(t.dataset.tab)));
 
-    if (!isAuthed) {
-      // No duel UI for anonymous users.
-    } else {
+    if (isAuthed) {
       const genToggle = document.getElementById("generate-toggle");
       const existingField = document.getElementById("existing-puzzle-field");
       const modelField = document.getElementById("model-field");
@@ -417,6 +446,28 @@
           modelField.style.display = gen ? "" : "none";
           countField.style.display = gen ? "" : "none";
         });
+      }
+
+      // Clickable "recent opponents" chips prefill the username field.
+      document.querySelectorAll(".recent-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          const input = document.getElementById("opp-username");
+          if (!input) return;
+          input.value = chip.dataset.username;
+          input.focus();
+        });
+      });
+
+      // Handle ?duel=<pk> — jump to the Duels tab with that puzzle preselected.
+      const duelParam = new URLSearchParams(location.search).get("duel");
+      if (duelParam) {
+        activateTab("duels");
+        const sel = document.getElementById("puzzle-select");
+        if (sel && sel.querySelector(`option[value="${duelParam}"]`)) {
+          sel.value = duelParam;
+        }
+        const nameInput = document.getElementById("opp-username");
+        if (nameInput) nameInput.focus();
       }
     }
 

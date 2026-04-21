@@ -1,0 +1,343 @@
+/* Shared word-puzzle board: renders a word bank + equation rows with drag/drop.
+ *
+ * Usage:
+ *   const board = createBoard({
+ *     bankEl:        <div>,     // container for word bubbles
+ *     boardEl:       <div>,     // container for equation rows (new rows appended)
+ *     words:         [{text, combo}, ...],
+ *     combinations:  [{id, type}, ...],   // only 'word_sum' (3 slots) for now
+ *     onRowChanged:  (comboIdx) => {},    // fired after anything in that row changes
+ *   });
+ *
+ * The callback is fired with the combo index as a string. It fires for every
+ * affected row — including both source and target when a drag moves a word
+ * between rows, and when a word is returned to the bank.
+ *
+ * Returned helpers expose the board state so callers can decide what to do
+ * (e.g. check a row with the server, or verify all rows are filled).
+ */
+(function (global) {
+  function createBoard({ bankEl, boardEl, words, combinations, onRowChanged }) {
+    let dragIndex = null;
+    let dragSourceBox = null;
+
+    words.forEach((word, i) => {
+      const el = document.createElement("div");
+      el.className = "word-bubble";
+      el.textContent = word.text;
+      el.draggable = true;
+      el.dataset.index = i;
+      el.addEventListener("dragstart", onBubbleDragStart);
+      el.addEventListener("dragend", onBubbleDragEnd);
+      el.addEventListener("click", onBubbleClick);
+      bankEl.appendChild(el);
+    });
+
+    combinations.forEach((combo, i) => {
+      const row = document.createElement("div");
+      row.className = "equation";
+      row.dataset.combo = i;
+      if (combo.type === "word_sum") {
+        for (let j = 0; j < 3; j++) {
+          if (j === 1) row.appendChild(makeOperator("+"));
+          if (j === 2) row.appendChild(makeOperator("="));
+          row.appendChild(makeDropBox(i, j));
+        }
+      }
+      boardEl.appendChild(row);
+    });
+
+    bankEl.addEventListener("dragover", e => { if (dragSourceBox) e.preventDefault(); });
+    bankEl.addEventListener("drop", e => {
+      if (!dragSourceBox || dragIndex === null) return;
+      e.preventDefault();
+      const comboIdx = dragSourceBox.dataset.combo;
+      clearBox(dragSourceBox);
+      markBubblePlaced(dragIndex, false);
+      fire(comboIdx);
+    });
+
+    function makeOperator(text) {
+      const op = document.createElement("span");
+      op.className = "operator";
+      op.textContent = text;
+      return op;
+    }
+
+    function makeDropBox(comboIdx, slot) {
+      const box = document.createElement("div");
+      box.className = "drop-box";
+      box.dataset.combo = comboIdx;
+      box.dataset.slot = slot;
+      box.draggable = true;
+      box.addEventListener("dragstart", onBoxDragStart);
+      box.addEventListener("dragend", onBoxDragEnd);
+      box.addEventListener("dragover", onDragOver);
+      box.addEventListener("dragleave", onDragLeave);
+      box.addEventListener("drop", onDrop);
+      box.addEventListener("click", onBoxClick);
+      return box;
+    }
+
+    function onBubbleDragStart(e) {
+      const b = e.target;
+      if (b.classList.contains("placed")) { e.preventDefault(); return; }
+      dragIndex = b.dataset.index;
+      dragSourceBox = null;
+      b.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    }
+    function onBubbleDragEnd(e) {
+      e.target.classList.remove("dragging");
+      cleanupDrag();
+    }
+
+    function onBoxDragStart(e) {
+      const box = e.currentTarget;
+      if (box.dataset.wordIndex === undefined) { e.preventDefault(); return; }
+      dragIndex = box.dataset.wordIndex;
+      dragSourceBox = box;
+      box.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    }
+    function onBoxDragEnd(e) {
+      e.currentTarget.classList.remove("dragging");
+      cleanupDrag();
+    }
+
+    function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }
+    function onDragLeave(e) { e.currentTarget.classList.remove("drag-over"); }
+
+    function onDrop(e) {
+      e.preventDefault();
+      const box = e.currentTarget;
+      box.classList.remove("drag-over");
+      if (dragIndex === null) return;
+      if (box === dragSourceBox) return;
+
+      const targetIdx = box.dataset.wordIndex;
+      const sourceCombo = dragSourceBox ? dragSourceBox.dataset.combo : null;
+
+      if (dragSourceBox) {
+        // Box-to-box: swap if target filled, else just empty the source.
+        if (targetIdx !== undefined) setBoxWord(dragSourceBox, parseInt(targetIdx));
+        else clearBox(dragSourceBox);
+      } else {
+        // Bank-to-box: bounce the occupying word back to the bank first.
+        if (targetIdx !== undefined) markBubblePlaced(targetIdx, false);
+        markBubblePlaced(dragIndex, true);
+      }
+      setBoxWord(box, parseInt(dragIndex));
+
+      if (sourceCombo !== null && sourceCombo !== box.dataset.combo) {
+        fire(sourceCombo);
+      }
+      fire(box.dataset.combo);
+    }
+
+    function onBubbleClick(e) {
+      const b = e.target;
+      if (b.classList.contains("placed")) return;
+      const empty = boardEl.querySelector(".drop-box:not(.filled)");
+      if (!empty) return;
+      b.classList.add("placed");
+      setBoxWord(empty, parseInt(b.dataset.index));
+      fire(empty.dataset.combo);
+    }
+
+    function onBoxClick(e) {
+      const box = e.currentTarget;
+      if (box.dataset.wordIndex === undefined) return;
+      const comboIdx = box.dataset.combo;
+      markBubblePlaced(box.dataset.wordIndex, false);
+      clearBox(box);
+      fire(comboIdx);
+    }
+
+    function setBoxWord(box, wordIdx) {
+      box.textContent = words[wordIdx].text;
+      box.dataset.wordIndex = wordIdx;
+      box.classList.add("filled");
+      box.classList.remove("slot-wrong", "slot-correct");
+    }
+    function clearBox(box) {
+      box.textContent = "";
+      delete box.dataset.wordIndex;
+      box.classList.remove("filled", "slot-wrong", "slot-correct");
+    }
+    function markBubblePlaced(wordIdx, placed) {
+      const b = bankEl.querySelector(`[data-index="${wordIdx}"]`);
+      if (b) b.classList.toggle("placed", placed);
+    }
+    function cleanupDrag() { dragIndex = null; dragSourceBox = null; }
+    function fire(comboIdx) {
+      if (onRowChanged) onRowChanged(String(comboIdx));
+    }
+
+    return {
+      boxes(comboIdx) {
+        return boardEl.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
+      },
+      isRowFilled(comboIdx) {
+        return Array.from(this.boxes(comboIdx))
+          .every(b => b.dataset.wordIndex !== undefined);
+      },
+      rowWords(comboIdx) {
+        return Array.from(this.boxes(comboIdx))
+          .map(b => words[parseInt(b.dataset.wordIndex)].text);
+      },
+      allRowsFilled() {
+        return boardEl.querySelectorAll(".drop-box:not(.filled)").length === 0;
+      },
+      eachCombo(fn) {
+        combinations.forEach((_, i) => fn(String(i)));
+      },
+    };
+  }
+
+  /* Collapsible "N solved ✓" group at the top of the board.
+   *
+   * Usage:
+   *   const solved = createSolvedGroup({
+   *     sectionEl: <div>,      // outer group wrapper (matches puzzle.html markup)
+   *     listEl:    <div>,      // inner list that holds the moved rows
+   *     countEl:   <span>,     // text node for the counter
+   *     toggleEl:  <button>,   // collapse/expand button
+   *     boardEl:   <div>,      // main equations container (where rows live when not solved)
+   *     solveDelayMs: 450,     // optional: delay before moving so users see the green slots
+   *   });
+   *
+   *   solved.markSolved(comboIdx);   // schedule the row to move into the solved list
+   *   solved.markUnsolved(comboIdx); // move it back immediately; cancels any pending solve
+   *   solved.count();                // how many rows are currently in the solved list
+   */
+  function createSolvedGroup({ sectionEl, listEl, countEl, toggleEl, boardEl, solveDelayMs = 450 }) {
+    const pending = new Map();
+
+    toggleEl.addEventListener("click", () => {
+      const collapsed = sectionEl.classList.toggle("collapsed");
+      toggleEl.setAttribute("aria-expanded", String(!collapsed));
+    });
+
+    function cancelPending(comboIdx) {
+      const t = pending.get(comboIdx);
+      if (t !== undefined) { clearTimeout(t); pending.delete(comboIdx); }
+    }
+
+    function rowFor(comboIdx) {
+      return document.querySelector(`.equation[data-combo="${comboIdx}"]`);
+    }
+
+    function markSolved(comboIdx) {
+      const row = rowFor(comboIdx);
+      if (!row) return;
+      cancelPending(comboIdx);
+      const t = setTimeout(() => {
+        pending.delete(comboIdx);
+        if (row.parentElement !== listEl) {
+          listEl.appendChild(row);
+          update();
+        }
+      }, solveDelayMs);
+      pending.set(comboIdx, t);
+    }
+
+    function markUnsolved(comboIdx) {
+      cancelPending(comboIdx);
+      const row = rowFor(comboIdx);
+      if (!row || row.parentElement !== listEl) return;
+      const idx = parseInt(comboIdx);
+      const siblings = boardEl.querySelectorAll(":scope > .equation");
+      let inserted = false;
+      for (const sib of siblings) {
+        if (parseInt(sib.dataset.combo) > idx) {
+          boardEl.insertBefore(row, sib);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) boardEl.appendChild(row);
+      update();
+    }
+
+    function update() {
+      const n = listEl.children.length;
+      sectionEl.hidden = n === 0;
+      if (n > 0) countEl.textContent = `${n} solved ✓`;
+    }
+
+    return {
+      markSolved, markUnsolved,
+      count: () => listEl.children.length,
+    };
+  }
+
+  /* Run error-check on a single row: POST its words, then style the slots
+   * (green on match, red on mismatch) and drive the solved group. Returns a
+   * promise resolving to true iff the row is fully correct.
+   *
+   * The server endpoint is expected to return { wrong_slots: [indices] }.
+   */
+  function checkRowAndStyle({ url, csrfToken, board, solved, comboIdx, onAllCorrect }) {
+    const slotWords = board.rowWords(comboIdx);
+    const boxes = board.boxes(comboIdx);
+    return fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+      body: JSON.stringify({ words: slotWords }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        const wrongSet = new Set(data.wrong_slots || []);
+        boxes.forEach((box, j) => {
+          box.classList.remove("slot-wrong", "slot-correct");
+          box.classList.add(wrongSet.has(j) ? "slot-wrong" : "slot-correct");
+        });
+        const correct = wrongSet.size === 0;
+        if (correct) solved.markSolved(comboIdx);
+        else solved.markUnsolved(comboIdx);
+        if (onAllCorrect) onAllCorrect(correct, data);
+        return correct;
+      });
+  }
+
+  /* Toggle the "all filled but wrong arrangement" hint: yellow glow on every
+   * drop-box. Call after each row change. `expected` is the total row count. */
+  function updateAllFilledHint({ board, solved, expected }) {
+    const allFilled = board.allRowsFilled();
+    const allDone = solved.count() >= expected;
+    const hint = allFilled && !allDone;
+    document.querySelectorAll(".drop-box").forEach(b => {
+      b.classList.toggle("slot-yellow", hint);
+    });
+  }
+
+  function launchFireworks(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const colors = ["#fbbf24", "#f87171", "#34d399", "#60a5fa", "#a78bfa", "#f472b6"];
+    for (let burst = 0; burst < 5; burst++) {
+      const cx = Math.random() * window.innerWidth;
+      const cy = Math.random() * window.innerHeight * 0.6;
+      for (let i = 0; i < 30; i++) {
+        const spark = document.createElement("div");
+        spark.className = "spark";
+        const angle = (Math.PI * 2 * i) / 30;
+        const dist = 80 + Math.random() * 120;
+        spark.style.left = cx + "px";
+        spark.style.top = cy + "px";
+        spark.style.background = colors[Math.floor(Math.random() * colors.length)];
+        spark.style.setProperty("--dx", Math.cos(angle) * dist + "px");
+        spark.style.setProperty("--dy", Math.sin(angle) * dist + "px");
+        spark.style.animationDelay = burst * 0.2 + "s";
+        container.appendChild(spark);
+      }
+    }
+  }
+
+  global.createBoard = createBoard;
+  global.createSolvedGroup = createSolvedGroup;
+  global.checkRowAndStyle = checkRowAndStyle;
+  global.updateAllFilledHint = updateAllFilledHint;
+  global.launchFireworks = launchFireworks;
+})(window);

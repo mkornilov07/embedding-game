@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Duel: {{ puzzle.name }}</title>
+  <link rel="stylesheet" href="{% static 'game/board.css' %}">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -38,21 +39,7 @@
       max-width: 680px;
       margin-bottom: 2rem;
     }
-    .word-bubble {
-      background: #4299e1;
-      color: #fff;
-      padding: 0.45rem 1.1rem;
-      border-radius: 9999px;
-      font-size: 1.05rem;
-      cursor: grab;
-      user-select: none;
-      -webkit-user-select: none;
-      -moz-user-select: none;
-      transition: transform 0.1s, opacity 0.15s;
-    }
-    .word-bubble:active { cursor: grabbing; }
-    .word-bubble.dragging { opacity: 0.5; transform: scale(1.05); }
-    .word-bubble.placed { background: #a0aec0; cursor: default; }
+    .word-bubble { font-size: 1.05rem; padding: 0.45rem 1.1rem; }
 
     .equations {
       display: flex;
@@ -61,51 +48,9 @@
       width: 100%;
       max-width: 560px;
     }
-    .equation {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      justify-content: center;
-      font-size: 1.2rem;
-      font-weight: 600;
-    }
-    .drop-box {
-      width: 120px;
-      height: 44px;
-      border: 2px dashed #a0aec0;
-      border-radius: 0.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #fff;
-      font-size: 1rem;
-      font-weight: 500;
-      color: #2d3748;
-      user-select: none;
-      -webkit-user-select: none;
-      -moz-user-select: none;
-      transition: border-color 0.15s, background 0.15s;
-    }
-    .drop-box.dragging { opacity: 0.5; }
-    .drop-box.drag-over { border-color: #4299e1; background: #ebf8ff; }
-    .drop-box.filled {
-      border-style: solid;
-      border-color: #4299e1;
-      background: #ebf8ff;
-      cursor: grab;
-    }
-    .drop-box.filled:active { cursor: grabbing; }
-    .drop-box.slot-wrong {
-      border-color: #e53e3e;
-      background: #fee2e2;
-      color: #991b1b;
-    }
-    .drop-box.slot-correct {
-      border-color: #10b981;
-      background: #d1fae5;
-      color: #065f46;
-    }
-    .operator { font-size: 1.3rem; color: #718096; }
+    .equation { font-size: 1.2rem; }
+    .drop-box { width: 120px; height: 44px; font-size: 1rem; }
+    .operator { font-size: 1.3rem; }
 
     /* Sidebar */
     .sidebar {
@@ -174,17 +119,8 @@
     .surrender-btn:hover { background: #fee2e2; border-color: #feb2b2; }
     .surrender-btn:disabled { opacity: 0.55; cursor: default; }
 
-    /* Overlays */
-    .overlay {
-      display: none;
-      position: fixed; inset: 0;
-      z-index: 100;
-      justify-content: center; align-items: center;
-      flex-direction: column; gap: 1rem;
-      animation: fadeIn 0.3s ease;
-    }
-    .overlay.show { display: flex; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    /* Page-specific overlay variants; .overlay base + fireworks come from board.css */
+    .overlay { flex-direction: column; gap: 1rem; }
     .overlay-win { background: rgba(16, 185, 129, 0.9); }
     .overlay-lose { background: rgba(71, 85, 105, 0.92); }
     .overlay .icon { font-size: 5rem; color: #fff; }
@@ -201,15 +137,6 @@
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
-    }
-    .fireworks { position: fixed; inset: 0; pointer-events: none; z-index: 101; }
-    .spark {
-      position: absolute; width: 8px; height: 8px; border-radius: 50%;
-      animation: spark 1s ease-out forwards;
-    }
-    @keyframes spark {
-      0%   { opacity: 1; transform: translate(0,0) scale(1); }
-      100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0); }
     }
     .back-link { color: #4299e1; text-decoration: none; font-size: 0.9rem; }
     .back-link:hover { text-decoration: underline; }
@@ -228,7 +155,17 @@
       <div class="subtitle">Duel vs <strong>{{ opponent.username }}</strong></div>
 
       <div class="word-bank" id="word-bank"></div>
-      <div class="equations" id="equations"></div>
+      <div class="equations" id="equations">
+        <div class="solved-section collapsed" id="solved-section" hidden>
+          <button type="button" class="solved-header" id="solved-toggle" aria-expanded="false">
+            <span id="solved-count"></span>
+            <span class="solved-chevron">&#x25BE;</span>
+          </button>
+          <div class="solved-list-wrapper">
+            <div class="solved-list" id="solved-list"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <aside class="sidebar">
@@ -263,6 +200,7 @@
     <a class="back-btn" href="{% url 'puzzle_list' %}">Home</a>
   </div>
 
+  <script src="{% static 'game/board.js' %}"></script>
   <script>
     const duelId = {{ duel.pk }};
     const myUserId = {{ request.user.id }};
@@ -273,9 +211,8 @@
     const csrfToken = "{{ csrf_token }}";
     const alreadyFinished = {% if winner_username %}true{% else %}false{% endif %};
     const preWinner = "{{ winner_username|escapejs }}";
+    const myUsername = "{{ request.user.username|escapejs }}";
 
-    const bank = document.getElementById("word-bank");
-    const eqContainer = document.getElementById("equations");
     const myCountEl = document.getElementById("my-count");
     const oppCountEl = document.getElementById("opp-count");
     const myBar = document.getElementById("my-bar");
@@ -287,201 +224,32 @@
     updateBar(myBar, parseInt(myCountEl.textContent) || 0);
     updateBar(oppBar, parseInt(oppCountEl.textContent) || 0);
 
-    // Local dedupe so we don't POST the same row key twice.
-    const submittedKeys = new Set();
-    function rowKey(a, b, c) {
-      return JSON.stringify([[a, b].sort(), c]);
-    }
-
-    // Render word bubbles
-    words.forEach((word, i) => {
-      const el = document.createElement("div");
-      el.className = "word-bubble";
-      el.textContent = word.text;
-      el.draggable = true;
-      el.dataset.index = i;
-      el.addEventListener("dragstart", onDragStart);
-      el.addEventListener("dragend", onDragEnd);
-      el.addEventListener("click", onBubbleClick);
-      bank.appendChild(el);
+    const eqContainer = document.getElementById("equations");
+    const solved = createSolvedGroup({
+      sectionEl: document.getElementById("solved-section"),
+      listEl: document.getElementById("solved-list"),
+      countEl: document.getElementById("solved-count"),
+      toggleEl: document.getElementById("solved-toggle"),
+      boardEl: eqContainer,
+    });
+    const board = createBoard({
+      bankEl: document.getElementById("word-bank"),
+      boardEl: eqContainer,
+      words, combinations,
+      onRowChanged: handleRowChange,
     });
 
-    combinations.forEach((combo, i) => {
-      const row = document.createElement("div");
-      row.className = "equation";
-      row.dataset.combo = i;
-      for (let j = 0; j < 3; j++) {
-        if (j === 1) addOperator(row, "+");
-        if (j === 2) addOperator(row, "=");
-        row.appendChild(makeDropBox(i, j));
+    function handleRowChange(comboIdx) {
+      // Clear stale styling + solved state for this row.
+      board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
+      solved.markUnsolved(comboIdx);
+
+      if (!board.isRowFilled(comboIdx)) {
+        updateAllFilledHint({ board, solved, expected: total });
+        return;
       }
-      eqContainer.appendChild(row);
-    });
-
-    function addOperator(row, text) {
-      const op = document.createElement("span");
-      op.className = "operator";
-      op.textContent = text;
-      row.appendChild(op);
-    }
-
-    function makeDropBox(comboIndex, slot) {
-      const box = document.createElement("div");
-      box.className = "drop-box";
-      box.dataset.combo = comboIndex;
-      box.dataset.slot = slot;
-      box.draggable = true;
-      box.addEventListener("dragstart", onBoxDragStart);
-      box.addEventListener("dragend", onBoxDragEnd);
-      box.addEventListener("dragover", onDragOver);
-      box.addEventListener("dragleave", onDragLeave);
-      box.addEventListener("drop", onDrop);
-      box.addEventListener("click", onBoxClick);
-      return box;
-    }
-
-    // Track both the word being dragged and, if dragging from a box, which box it came from.
-    let dragIndex = null;
-    let dragSourceBox = null;
-
-    function onDragStart(e) {
-      const b = e.target;
-      if (b.classList.contains("placed")) { e.preventDefault(); return; }
-      dragIndex = b.dataset.index;
-      dragSourceBox = null;
-      b.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    }
-    function onDragEnd(e) { e.target.classList.remove("dragging"); dragIndex = null; dragSourceBox = null; }
-
-    function onBoxDragStart(e) {
-      const box = e.currentTarget;
-      if (box.dataset.wordIndex === undefined) { e.preventDefault(); return; }
-      dragIndex = box.dataset.wordIndex;
-      dragSourceBox = box;
-      box.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    }
-    function onBoxDragEnd(e) {
-      e.currentTarget.classList.remove("dragging");
-      dragIndex = null;
-      dragSourceBox = null;
-    }
-
-    function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }
-    function onDragLeave(e) { e.currentTarget.classList.remove("drag-over"); }
-
-    function onDrop(e) {
-      e.preventDefault();
-      const box = e.currentTarget;
-      box.classList.remove("drag-over");
-      if (dragIndex === null) return;
-      if (box === dragSourceBox) return;
-
-      const targetWordIdx = box.dataset.wordIndex;
-      const sourceBoxCombo = dragSourceBox ? dragSourceBox.dataset.combo : null;
-
-      if (dragSourceBox) {
-        // Moving a word from one box to another: swap if target is filled, else just move.
-        if (targetWordIdx !== undefined) {
-          setBoxWord(dragSourceBox, parseInt(targetWordIdx));
-        } else {
-          clearBox(dragSourceBox);
-        }
-      } else {
-        // Moving from the bank. If target is filled, bounce that word back to the bank.
-        if (targetWordIdx !== undefined) {
-          const existing = bank.querySelector(`[data-index="${targetWordIdx}"]`);
-          if (existing) existing.classList.remove("placed");
-        }
-        const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
-        if (bubble) bubble.classList.add("placed");
-      }
-      setBoxWord(box, parseInt(dragIndex));
-
-      // Re-check row state. If we moved between different combos, the source row is now
-      // partially filled; its slot classes were already cleared by clearBox/setBoxWord.
-      if (sourceBoxCombo !== null && sourceBoxCombo !== box.dataset.combo) {
-        maybeCheckRow(sourceBoxCombo);
-      }
-      maybeCheckRow(box.dataset.combo);
-    }
-
-    // Only call tryRow when a combo has all three slots filled.
-    function maybeCheckRow(comboIdx) {
-      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
-      if (Array.from(boxes).every(b => b.dataset.wordIndex !== undefined)) {
-        tryRow(comboIdx);
-      }
-    }
-
-    function onBubbleClick(e) {
-      const b = e.target;
-      if (b.classList.contains("placed")) return;
-      const box = document.querySelector(".drop-box:not(.filled)");
-      if (!box) return;
-      placeWord(b, box);
-    }
-    function onBoxClick(e) {
-      const box = e.currentTarget;
-      if (box.dataset.wordIndex === undefined) return;
-      const idx = box.dataset.wordIndex;
-      const bubble = bank.querySelector(`[data-index="${idx}"]`);
-      if (bubble) bubble.classList.remove("placed");
-      clearBox(box);
-    }
-    function placeWord(bubble, box) {
-      bubble.classList.add("placed");
-      setBoxWord(box, parseInt(bubble.dataset.index));
-      tryRow(box.dataset.combo);
-    }
-
-    function setBoxWord(box, wordIdx) {
-      box.textContent = words[wordIdx].text;
-      box.dataset.wordIndex = wordIdx;
-      box.classList.add("filled");
-      box.classList.remove("slot-wrong", "slot-correct");
-    }
-    function clearBox(box) {
-      box.textContent = "";
-      delete box.dataset.wordIndex;
-      box.classList.remove("filled", "slot-wrong", "slot-correct");
-    }
-
-    // Allow dropping back onto the bank to release a word from its box.
-    bank.addEventListener("dragover", e => { if (dragSourceBox) e.preventDefault(); });
-    bank.addEventListener("drop", e => {
-      if (!dragSourceBox || dragIndex === null) return;
-      e.preventDefault();
-      clearBox(dragSourceBox);
-      const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
-      if (bubble) bubble.classList.remove("placed");
-    });
-
-    function tryRow(comboIdx) {
-      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
-      const allFilled = Array.from(boxes).every(b => b.dataset.wordIndex !== undefined);
-      if (!allFilled) return;
-      const slotWords = Array.from(boxes).map(b => words[b.dataset.wordIndex].text);
-      const key = rowKey(slotWords[0], slotWords[1], slotWords[2]);
-      if (submittedKeys.has(key)) return;
-
-      fetch(rowSolvedUrl, {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
-        body: JSON.stringify({ words: slotWords }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.ok) {
-            submittedKeys.add(key);
-            boxes.forEach(b => { b.classList.remove("slot-wrong"); b.classList.add("slot-correct"); });
-            myCountEl.textContent = data.count;
-            updateBar(myBar, data.count);
-          } else if (data.reason === "incorrect") {
-            boxes.forEach(b => { b.classList.remove("slot-correct"); b.classList.add("slot-wrong"); });
-          }
-        });
+      checkRowAndStyle({ url: rowSolvedUrl, csrfToken, board, solved, comboIdx })
+        .then(() => updateAllFilledHint({ board, solved, expected: total }));
     }
 
     const surrenderBtn = document.getElementById("surrender-btn");
@@ -494,11 +262,9 @@
           headers: {"X-CSRFToken": csrfToken, "Content-Type": "application/json"},
           body: "{}",
         });
-        // The server broadcasts duel_ended; the WS handler shows the lose overlay.
       });
     }
 
-    // WebSocket
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}/ws/duel/${duelId}/`);
     ws.onmessage = ev => {
@@ -519,40 +285,15 @@
     function showEnd(won, winnerName) {
       if (won) {
         document.getElementById("overlay-win").classList.add("show");
-        launchFireworks();
+        launchFireworks("fireworks");
       } else {
         document.getElementById("lose-sub").textContent = `${winnerName} finished first.`;
         document.getElementById("overlay-lose").classList.add("show");
       }
     }
 
-    // If the page is loaded after the duel already ended (refresh on stale state),
-    // show the result immediately.
-    if (alreadyFinished) {
-      showEnd(preWinner === "{{ request.user.username|escapejs }}", preWinner);
-    }
-
-    function launchFireworks() {
-      const container = document.getElementById("fireworks");
-      const colors = ["#fbbf24", "#f87171", "#34d399", "#60a5fa", "#a78bfa", "#f472b6"];
-      for (let burst = 0; burst < 5; burst++) {
-        const cx = Math.random() * window.innerWidth;
-        const cy = Math.random() * window.innerHeight * 0.6;
-        for (let i = 0; i < 30; i++) {
-          const spark = document.createElement("div");
-          spark.className = "spark";
-          const angle = (Math.PI * 2 * i) / 30;
-          const dist = 80 + Math.random() * 120;
-          spark.style.left = cx + "px";
-          spark.style.top = cy + "px";
-          spark.style.background = colors[Math.floor(Math.random() * colors.length)];
-          spark.style.setProperty("--dx", Math.cos(angle) * dist + "px");
-          spark.style.setProperty("--dy", Math.sin(angle) * dist + "px");
-          spark.style.animationDelay = burst * 0.2 + "s";
-          container.appendChild(spark);
-        }
-      }
-    }
+    // If the page was loaded after the duel already ended, show the result immediately.
+    if (alreadyFinished) showEnd(preWinner === myUsername, preWinner);
   </script>
 </body>
 </html>

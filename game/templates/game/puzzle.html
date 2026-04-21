@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ puzzle.name }}</title>
+  <link rel="stylesheet" href="{% static 'game/board.css' %}">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -23,42 +24,9 @@
       margin-bottom: 2rem;
     }
 
-    /* Word bank */
-    .word-bank {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      justify-content: center;
-      max-width: 700px;
-      margin-bottom: 2.5rem;
-    }
+    .word-bank { gap: 0.75rem; margin-bottom: 2.5rem; }
+    .word-bubble { font-size: 1.1rem; padding: 0.5rem 1.2rem; }
 
-    .word-bubble {
-      background: #4299e1;
-      color: #fff;
-      padding: 0.5rem 1.2rem;
-      border-radius: 9999px;
-      font-size: 1.1rem;
-      cursor: grab;
-      user-select: none;
-      -webkit-user-select: none;
-      -moz-user-select: none;
-      transition: transform 0.1s, box-shadow 0.1s;
-    }
-
-    .word-bubble:active { cursor: grabbing; }
-
-    .word-bubble.dragging {
-      opacity: 0.5;
-      transform: scale(1.05);
-    }
-
-    .word-bubble.placed {
-      background: #a0aec0;
-      cursor: default;
-    }
-
-    /* Equations */
     .equations {
       display: flex;
       flex-direction: column;
@@ -66,155 +34,13 @@
       width: 100%;
       max-width: 600px;
     }
+    .equation { font-size: 1.3rem; }
 
-    .equation {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      justify-content: center;
-      font-size: 1.3rem;
-      font-weight: 600;
-    }
+    .drop-box { width: 130px; height: 48px; font-size: 1.1rem; }
+    .operator { font-size: 1.4rem; }
 
-    .solved-section {
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-    }
-
-    .solved-section[hidden] { display: none; }
-
-    .solved-section:not([hidden]) {
-      animation: section-enter 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
-    }
-
-    @keyframes section-enter {
-      from { opacity: 0; transform: translateY(-10px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .solved-header {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.55rem;
-      background: #d1fae5;
-      color: #065f46;
-      border: 2px solid #10b981;
-      border-radius: 9999px;
-      padding: 0.4rem 1.1rem;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: inherit;
-      align-self: center;
-      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
-    }
-
-    .solved-header:hover {
-      background: #a7f3d0;
-      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
-    }
-
-    .solved-header:active { transform: scale(0.97); }
-
-    .solved-chevron {
-      display: inline-block;
-      font-size: 0.7rem;
-      line-height: 1;
-      transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
-    }
-
-    .solved-section:not(.collapsed) .solved-chevron {
-      transform: rotate(180deg);
-    }
-
-    .solved-list-wrapper {
-      display: grid;
-      grid-template-rows: 1fr;
-      transition: grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
-    }
-
-    .solved-section.collapsed .solved-list-wrapper {
-      grid-template-rows: 0fr;
-    }
-
-    .solved-list {
-      min-height: 0;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-    }
-
-    .solved-list > .equation {
-      animation: row-enter 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
-    }
-
-    @keyframes row-enter {
-      from { opacity: 0; transform: translateY(-6px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .drop-box {
-      width: 130px;
-      height: 48px;
-      border: 2px dashed #a0aec0;
-      border-radius: 0.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #fff;
-      transition: border-color 0.15s, background 0.15s;
-      font-size: 1.1rem;
-      font-weight: 500;
-      color: #2d3748;
-      user-select: none;
-      -webkit-user-select: none;
-      -moz-user-select: none;
-    }
-
-    .drop-box.drag-over {
-      border-color: #4299e1;
-      background: #ebf8ff;
-    }
-
-    .drop-box.filled {
-      border-style: solid;
-      border-color: #4299e1;
-      background: #ebf8ff;
-      cursor: grab;
-    }
-    .drop-box.filled:active { cursor: grabbing; }
-    .drop-box.dragging { opacity: 0.5; }
-
-    .operator {
-      font-size: 1.4rem;
-      color: #718096;
-    }
-
-    /* Result overlays */
-    .overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 100;
-      justify-content: center;
-      align-items: center;
-      animation: fadeIn 0.3s ease;
-    }
-
-    .overlay.show { display: flex; }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    /* Wrong overlay */
-    .overlay-wrong {
-      background: rgba(220, 38, 38, 0.85);
-    }
+    /* Page-specific overlay variants; base + fireworks live in board.css. */
+    .overlay-wrong { background: rgba(220, 38, 38, 0.85); }
 
     .overlay-wrong .icon {
       font-size: 12rem;
@@ -246,26 +72,6 @@
       color: #fff;
     }
 
-    .fireworks {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 101;
-    }
-
-    .spark {
-      position: absolute;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      animation: spark 1s ease-out forwards;
-    }
-
-    @keyframes spark {
-      0% { opacity: 1; transform: translate(0, 0) scale(1); }
-      100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(0); }
-    }
-
     .back-btn {
       margin-top: 1.5rem;
       padding: 0.75rem 2rem;
@@ -294,17 +100,20 @@
       margin-bottom: 1.5rem;
     }
 
-    .drop-box.slot-wrong {
-      border-color: #e53e3e;
-      background: #fee2e2;
-      color: #991b1b;
+    .duel-btn {
+      display: inline-block;
+      margin-bottom: 1rem;
+      padding: 0.4rem 1rem;
+      background: #ebf8ff;
+      color: #4299e1;
+      border-radius: 9999px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.15s, transform 0.1s;
     }
-
-    .drop-box.slot-correct {
-      border-color: #10b981;
-      background: #d1fae5;
-      color: #065f46;
-    }
+    .duel-btn:hover { background: #bee3f8; }
+    .duel-btn:active { transform: scale(0.97); }
 
     .toggle-row {
       display: flex;
@@ -361,6 +170,9 @@
   <div class="back"><a href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
   <h1>{{ puzzle.name }}</h1>
   {% if puzzle.created_by %}<div class="author">by {{ puzzle.created_by.username }}</div>{% endif %}
+  {% if user.is_authenticated %}
+    <a class="duel-btn" href="{% url 'puzzle_list' %}?duel={{ puzzle.pk }}">⚔ Duel with this puzzle</a>
+  {% endif %}
 
   <div class="toggle-row">
     <label class="toggle">
@@ -395,6 +207,7 @@
     <div class="fireworks" id="fireworks"></div>
   </div>
 
+  <script src="{% static 'game/board.js' %}"></script>
   <script>
     const words = {{ words_json|safe }};
     const combinations = {{ combinations_json|safe }};
@@ -402,384 +215,91 @@
     const checkRowUrl = "{% url 'check_row' puzzle.pk %}";
     const csrfToken = "{{ csrf_token }}";
 
-    const bank = document.getElementById("word-bank");
     const eqContainer = document.getElementById("equations");
+    const toggleEl = document.getElementById("error-check-toggle");
 
-    // Render word bubbles
-    words.forEach((word, i) => {
-      const el = document.createElement("div");
-      el.className = "word-bubble";
-      el.textContent = word.text;
-      el.draggable = true;
-      el.dataset.index = i;
-      el.addEventListener("dragstart", onDragStart);
-      el.addEventListener("dragend", onDragEnd);
-      el.addEventListener("click", onBubbleClick);
-      bank.appendChild(el);
+    const solved = createSolvedGroup({
+      sectionEl: document.getElementById("solved-section"),
+      listEl: document.getElementById("solved-list"),
+      countEl: document.getElementById("solved-count"),
+      toggleEl: document.getElementById("solved-toggle"),
+      boardEl: eqContainer,
     });
 
-    // Render combinations by type
-    combinations.forEach((combo, i) => {
-      const row = document.createElement("div");
-      row.className = "equation";
-      row.dataset.combo = i;
-
-      if (combo.type === "word_sum") {
-        for (let j = 0; j < 3; j++) {
-          if (j === 1) addOperator(row, "+");
-          if (j === 2) addOperator(row, "=");
-          row.appendChild(makeDropBox(i, j));
-        }
-      }
-
-      eqContainer.appendChild(row);
+    const board = createBoard({
+      bankEl: document.getElementById("word-bank"),
+      boardEl: eqContainer,
+      words, combinations,
+      onRowChanged: handleRowChange,
     });
 
-    const solvedSection = document.getElementById("solved-section");
-    const solvedList = document.getElementById("solved-list");
-    const solvedCount = document.getElementById("solved-count");
-    const solvedToggle = document.getElementById("solved-toggle");
+    let submittedFinal = false;
 
-    solvedToggle.addEventListener("click", () => {
-      const collapsed = solvedSection.classList.toggle("collapsed");
-      solvedToggle.setAttribute("aria-expanded", String(!collapsed));
-    });
-
-    // Short delay before whisking a correct row away, so the user
-    // registers the green slot confirmation first.
-    const SOLVE_DELAY_MS = 450;
-    const pendingSolve = new Map();
-
-    function cancelPendingSolve(comboIdx) {
-      const t = pendingSolve.get(comboIdx);
-      if (t !== undefined) {
-        clearTimeout(t);
-        pendingSolve.delete(comboIdx);
-      }
+    function clearRowVisuals(comboIdx) {
+      board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
+      solved.markUnsolved(comboIdx);
     }
 
-    function scheduleSolve(row) {
-      const comboIdx = row.dataset.combo;
-      cancelPendingSolve(comboIdx);
-      const t = setTimeout(() => {
-        pendingSolve.delete(comboIdx);
-        markRowSolved(row);
-      }, SOLVE_DELAY_MS);
-      pendingSolve.set(comboIdx, t);
-    }
-
-    function markRowSolved(row) {
-      if (row.parentElement === solvedList) return;
-      solvedList.appendChild(row);
-      updateSolvedSection();
-    }
-
-    function markRowUnsolved(row) {
-      cancelPendingSolve(row.dataset.combo);
-      if (row.parentElement !== solvedList) return;
-      const comboIdx = parseInt(row.dataset.combo);
-      const siblings = eqContainer.querySelectorAll(":scope > .equation");
-      let inserted = false;
-      for (const sib of siblings) {
-        if (parseInt(sib.dataset.combo) > comboIdx) {
-          eqContainer.insertBefore(row, sib);
-          inserted = true;
-          break;
-        }
-      }
-      if (!inserted) eqContainer.appendChild(row);
-      updateSolvedSection();
-    }
-
-    function updateSolvedSection() {
-      const n = solvedList.children.length;
-      if (n === 0) {
-        solvedSection.hidden = true;
-        return;
-      }
-      solvedSection.hidden = false;
-      solvedCount.textContent = `${n} solved \u2713`;
-    }
-
-    function addOperator(row, text) {
-      const op = document.createElement("span");
-      op.className = "operator";
-      op.textContent = text;
-      row.appendChild(op);
-    }
-
-    function makeDropBox(comboIndex, slot) {
-      const box = document.createElement("div");
-      box.className = "drop-box";
-      box.dataset.combo = comboIndex;
-      box.dataset.slot = slot;
-      box.draggable = true;
-      box.addEventListener("dragstart", onBoxDragStart);
-      box.addEventListener("dragend", onBoxDragEnd);
-      box.addEventListener("dragover", onDragOver);
-      box.addEventListener("dragleave", onDragLeave);
-      box.addEventListener("drop", onDrop);
-      box.addEventListener("click", onBoxClick);
-      return box;
-    }
-
-    let dragIndex = null;
-    let dragSourceBox = null;
-
-    function onDragStart(e) {
-      const bubble = e.target;
-      if (bubble.classList.contains("placed")) {
-        e.preventDefault();
-        return;
-      }
-      dragIndex = bubble.dataset.index;
-      dragSourceBox = null;
-      bubble.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    }
-
-    function onDragEnd(e) {
-      e.target.classList.remove("dragging");
-      dragIndex = null;
-      dragSourceBox = null;
-    }
-
-    function onBoxDragStart(e) {
-      const box = e.currentTarget;
-      if (box.dataset.wordIndex === undefined) { e.preventDefault(); return; }
-      dragIndex = box.dataset.wordIndex;
-      dragSourceBox = box;
-      box.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    }
-
-    function onBoxDragEnd(e) {
-      e.currentTarget.classList.remove("dragging");
-      dragIndex = null;
-      dragSourceBox = null;
-    }
-
-    function placeWord(bubble, box) {
-      bubble.classList.add("placed");
-      setBoxWord(box, parseInt(bubble.dataset.index));
-      checkRowIfFull(box.dataset.combo);
-      checkAllFilled();
-    }
-
-    function setBoxWord(box, wordIdx) {
-      box.textContent = words[wordIdx].text;
-      box.dataset.wordIndex = wordIdx;
-      box.classList.add("filled");
-    }
-
-    function clearBox(box) {
-      box.textContent = "";
-      delete box.dataset.wordIndex;
-      box.classList.remove("filled");
-    }
-
-    function onBubbleClick(e) {
-      const bubble = e.target;
-      if (bubble.classList.contains("placed")) return;
-      const box = document.querySelector(".drop-box:not(.filled)");
-      if (!box) return;
-      placeWord(bubble, box);
-    }
-
-    function onDragOver(e) {
-      e.preventDefault();
-      e.currentTarget.classList.add("drag-over");
-    }
-
-    function onDragLeave(e) {
-      e.currentTarget.classList.remove("drag-over");
-    }
-
-    function onDrop(e) {
-      e.preventDefault();
-      const box = e.currentTarget;
-      box.classList.remove("drag-over");
-
-      if (dragIndex === null) return;
-      if (box === dragSourceBox) return;
-
-      const targetWordIdx = box.dataset.wordIndex;
-      const sourceCombo = dragSourceBox ? dragSourceBox.dataset.combo : null;
-
-      if (dragSourceBox) {
-        // Box-to-box move: swap if target filled, else empty the source.
-        if (targetWordIdx !== undefined) {
-          setBoxWord(dragSourceBox, parseInt(targetWordIdx));
-        } else {
-          clearBox(dragSourceBox);
-        }
+    function updateHint() {
+      if (toggleEl.checked) {
+        updateAllFilledHint({ board, solved, expected: combinations.length });
       } else {
-        // Bank-to-box: bounce the occupying word back to the bank first.
-        if (targetWordIdx !== undefined) {
-          const existing = bank.querySelector(`[data-index="${targetWordIdx}"]`);
-          if (existing) existing.classList.remove("placed");
-        }
-        const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
-        if (bubble) {
-          bubble.classList.remove("dragging");
-          bubble.classList.add("placed");
-        }
+        document.querySelectorAll(".drop-box").forEach(b => b.classList.remove("slot-yellow"));
       }
-      setBoxWord(box, parseInt(dragIndex));
-
-      // Re-evaluate solved/slot state for every affected combo.
-      if (sourceCombo !== null && sourceCombo !== box.dataset.combo) {
-        clearRowState(sourceCombo);
-        checkRowIfFull(sourceCombo);
-      }
-      clearRowState(box.dataset.combo);
-      checkRowIfFull(box.dataset.combo);
-      checkAllFilled();
     }
 
-    function onBoxClick(e) {
-      const box = e.currentTarget;
-      if (box.dataset.wordIndex === undefined) return;
-
-      const comboIdx = box.dataset.combo;
-      const idx = box.dataset.wordIndex;
-      const bubble = bank.querySelector(`[data-index="${idx}"]`);
-      if (bubble) bubble.classList.remove("placed");
-      clearBox(box);
-      clearRowState(comboIdx);
-    }
-
-    // Drop onto the bank to release a word from its box.
-    bank.addEventListener("dragover", e => { if (dragSourceBox) e.preventDefault(); });
-    bank.addEventListener("drop", e => {
-      if (!dragSourceBox || dragIndex === null) return;
-      e.preventDefault();
-      const comboIdx = dragSourceBox.dataset.combo;
-      clearBox(dragSourceBox);
-      const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
-      if (bubble) bubble.classList.remove("placed");
-      clearRowState(comboIdx);
-    });
-
-    function clearRowState(comboIdx) {
-      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
-      boxes.forEach(b => {
-        b.classList.remove("slot-wrong", "slot-correct");
-      });
-      const row = document.querySelector(`.equation[data-combo="${comboIdx}"]`);
-      if (row) markRowUnsolved(row);
-    }
-
-    function checkRowIfFull(comboIdx) {
-      if (!document.getElementById("error-check-toggle").checked) return;
-
-      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
-      const allFilled = Array.from(boxes).every(b => b.dataset.wordIndex !== undefined);
-      if (!allFilled) return;
-
-      const slotWords = Array.from(boxes).map(b => words[b.dataset.wordIndex].text);
-
-      fetch(checkRowUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfToken,
-        },
-        body: JSON.stringify({ words: slotWords }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          const wrongSet = new Set(data.wrong_slots);
-          boxes.forEach((box, j) => {
-            box.classList.remove("slot-wrong", "slot-correct");
-            if (wrongSet.has(j)) {
-              box.classList.add("slot-wrong");
-            } else {
-              box.classList.add("slot-correct");
-            }
-          });
-          const row = document.querySelector(`.equation[data-combo="${comboIdx}"]`);
-          if (wrongSet.size === 0) {
-            scheduleSolve(row);
-          } else {
-            markRowUnsolved(row);
-          }
-        });
-    }
-
-    document.getElementById("error-check-toggle").addEventListener("change", function () {
-      if (this.checked) {
-        combinations.forEach((_, i) => checkRowIfFull(String(i)));
+    function handleRowChange(comboIdx) {
+      clearRowVisuals(comboIdx);
+      submittedFinal = false;
+      if (toggleEl.checked && board.isRowFilled(comboIdx)) {
+        checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
+          .then(afterCheck);
+      } else if (!toggleEl.checked && board.allRowsFilled()) {
+        submitFinal();
       } else {
-        combinations.forEach((_, i) => clearRowState(String(i)));
+        updateHint();
       }
-    });
+    }
 
-    // Check if all boxes are filled, then verify with backend
-    function checkAllFilled() {
-      const allBoxes = document.querySelectorAll(".drop-box");
-      const allFilled = Array.from(allBoxes).every(b => b.dataset.wordIndex !== undefined);
-      if (!allFilled) return;
+    function afterCheck() {
+      if (solved.count() === combinations.length && !submittedFinal) {
+        submittedFinal = true;
+        submitFinal();
+      } else {
+        updateHint();
+      }
+    }
 
-      const payload = combinations.map((combo, i) => {
-        const boxes = document.querySelectorAll(`.drop-box[data-combo="${i}"]`);
-        const slotWords = Array.from(boxes).map(b => words[b.dataset.wordIndex].text);
-        return { id: combo.id, words: slotWords };
-      });
-
+    function submitFinal() {
+      const payload = combinations.map((c, i) => ({ id: c.id, words: board.rowWords(String(i)) }));
       fetch(checkUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfToken,
-        },
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
         body: JSON.stringify(payload),
       })
         .then(r => r.json())
-        .then(data => {
-          if (data.correct) {
-            showCorrect();
-          } else {
-            showWrong();
+        .then(data => { data.correct ? showCorrect() : showWrong(); });
+    }
+
+    toggleEl.addEventListener("change", () => {
+      if (toggleEl.checked) {
+        board.eachCombo(comboIdx => {
+          if (board.isRowFilled(comboIdx)) {
+            checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
+              .then(afterCheck);
           }
         });
-    }
+      } else {
+        board.eachCombo(clearRowVisuals);
+        updateHint();
+      }
+    });
 
-    function showWrong() {
-      document.getElementById("overlay-wrong").classList.add("show");
-    }
-
-    function dismissOverlay() {
-      document.getElementById("overlay-wrong").classList.remove("show");
-    }
-
+    function showWrong() { document.getElementById("overlay-wrong").classList.add("show"); }
+    function dismissOverlay() { document.getElementById("overlay-wrong").classList.remove("show"); }
     function showCorrect() {
       document.getElementById("overlay-correct").classList.add("show");
-      launchFireworks();
-    }
-
-    function launchFireworks() {
-      const container = document.getElementById("fireworks");
-      const colors = ["#fbbf24", "#f87171", "#34d399", "#60a5fa", "#a78bfa", "#f472b6"];
-
-      for (let burst = 0; burst < 5; burst++) {
-        const cx = Math.random() * window.innerWidth;
-        const cy = Math.random() * window.innerHeight * 0.6;
-
-        for (let i = 0; i < 30; i++) {
-          const spark = document.createElement("div");
-          spark.className = "spark";
-          const angle = (Math.PI * 2 * i) / 30;
-          const dist = 80 + Math.random() * 120;
-          spark.style.left = cx + "px";
-          spark.style.top = cy + "px";
-          spark.style.background = colors[Math.floor(Math.random() * colors.length)];
-          spark.style.setProperty("--dx", Math.cos(angle) * dist + "px");
-          spark.style.setProperty("--dy", Math.sin(angle) * dist + "px");
-          spark.style.animationDelay = burst * 0.2 + "s";
-          container.appendChild(spark);
-        }
-      }
+      launchFireworks("fireworks");
     }
   </script>
 </body>
