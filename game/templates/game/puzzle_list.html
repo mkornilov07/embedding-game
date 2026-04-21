@@ -16,7 +16,7 @@
       padding: 2rem;
       color: #1a202c;
     }
-    h1 { font-size: 1.8rem; margin-bottom: 2rem; }
+    h1 { font-size: 1.8rem; margin-bottom: 1.25rem; }
     .puzzle-list {
       display: flex;
       flex-direction: column;
@@ -40,66 +40,154 @@
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       transform: translateY(-1px);
     }
-    .empty { color: #718096; font-size: 1.1rem; }
+    .empty { color: #718096; font-size: 1.05rem; }
     .nav {
       position: absolute;
       top: 1rem;
       right: 1.5rem;
       font-size: 0.95rem;
     }
-    .nav a {
-      color: #4299e1;
-      text-decoration: none;
-      margin-left: 1rem;
-    }
+    .nav a { color: #4299e1; text-decoration: none; margin-left: 1rem; }
     .nav a:hover { text-decoration: underline; }
     .nav span { color: #718096; }
     .nav form { display: inline; margin-left: 1rem; }
     .nav button {
-      background: none;
-      border: none;
-      color: #4299e1;
-      font-size: inherit;
-      cursor: pointer;
-      padding: 0;
+      background: none; border: none; color: #4299e1;
+      font-size: inherit; cursor: pointer; padding: 0;
     }
     .nav button:hover { text-decoration: underline; }
-    .check {
-      color: #10b981;
-      margin-right: 0.5rem;
-      font-weight: 700;
-    }
+    .check { color: #10b981; margin-right: 0.5rem; font-weight: 700; }
     .author {
-      display: block;
-      font-size: 0.85rem;
-      font-weight: 400;
-      color: #718096;
-      margin-top: 0.15rem;
+      display: block; font-size: 0.85rem; font-weight: 400;
+      color: #718096; margin-top: 0.15rem;
     }
-    .puzzle-item {
-      position: relative;
-    }
+    .puzzle-item { position: relative; }
     .owner-actions {
-      position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      display: flex;
-      gap: 0.1rem;
+      position: absolute; top: 0.75rem; right: 0.75rem;
+      display: flex; gap: 0.1rem;
     }
     .icon-btn {
-      background: none;
-      border: none;
-      color: #a0aec0;
-      font-size: 1rem;
-      cursor: pointer;
-      padding: 0.2rem 0.4rem;
-      border-radius: 0.25rem;
-      line-height: 1;
-      text-decoration: none;
+      background: none; border: none; color: #a0aec0;
+      font-size: 1rem; cursor: pointer;
+      padding: 0.2rem 0.4rem; border-radius: 0.25rem;
+      line-height: 1; text-decoration: none;
     }
     .edit-btn:hover { color: #4299e1; background: #ebf8ff; }
     .delete-btn { font-size: 1.1rem; }
     .delete-btn:hover { color: #e53e3e; background: #fee2e2; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1.5rem;
+      background: #e2e8f0;
+      padding: 0.25rem;
+      border-radius: 9999px;
+    }
+    .tab {
+      background: transparent;
+      border: none;
+      padding: 0.5rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #4a5568;
+      cursor: pointer;
+      border-radius: 9999px;
+      font-family: inherit;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tab.active { background: #fff; color: #2d3748; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .tab:not(.active):hover { color: #2d3748; }
+
+    .tab-panel { width: 100%; max-width: 400px; display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Duels panel */
+    .card {
+      background: #fff;
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      margin-bottom: 1rem;
+    }
+    .card h3 {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #718096;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.85rem;
+    }
+    .field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; }
+    .field label { font-size: 0.9rem; color: #4a5568; }
+    .field input[type="text"], .field select {
+      padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 0.3rem;
+      font-size: 0.95rem; font-family: inherit;
+    }
+    .field-row { display: flex; align-items: center; gap: 0.5rem; }
+    .btn {
+      padding: 0.55rem 1.2rem; border: none; border-radius: 0.3rem;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .btn-primary { background: #4299e1; color: #fff; }
+    .btn-primary:hover { background: #3182ce; }
+    .btn-primary:disabled { background: #a0aec0; cursor: default; }
+    .btn-secondary { background: #edf2f7; color: #4a5568; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-danger { background: #fff5f5; color: #e53e3e; }
+    .btn-danger:hover { background: #fee2e2; }
+    .btn-success { background: #d1fae5; color: #065f46; }
+    .btn-success:hover { background: #a7f3d0; }
+
+    .invite-item {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.75rem 0;
+      border-top: 1px solid #edf2f7;
+    }
+    .invite-item:first-child { border-top: none; padding-top: 0; }
+    .invite-item .who { flex: 1; font-size: 0.95rem; }
+    .invite-item .who strong { color: #2d3748; }
+    .invite-item .who span { color: #718096; font-size: 0.85rem; display: block; }
+
+    .error { color: #e53e3e; font-size: 0.9rem; margin-top: 0.5rem; }
+
+    .gen-toggle {
+      display: flex; align-items: center; gap: 0.5rem;
+      margin: 0.5rem 0 0.75rem;
+      font-size: 0.9rem; color: #4a5568;
+    }
+
+    .pulse { animation: pulse 1.4s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+
+    /* Invite toast / modal */
+    .toast-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      z-index: 100;
+      justify-content: center; align-items: center;
+      animation: fadeIn 0.2s ease;
+    }
+    .toast-backdrop.show { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .toast {
+      background: #fff;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      max-width: 340px;
+      width: calc(100% - 2rem);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+      text-align: center;
+    }
+    .toast h3 { font-size: 1.1rem; margin-bottom: 0.5rem; color: #2d3748; }
+    .toast p { color: #4a5568; margin-bottom: 1rem; font-size: 0.95rem; }
+    .toast .btn-row { display: flex; gap: 0.5rem; justify-content: center; }
   </style>
 </head>
 <body>
@@ -113,44 +201,264 @@
     {% endif %}
   </div>
   <h1>Puzzles</h1>
+
   {% if user.is_authenticated %}
-    <a class="puzzle-link" href="{% url 'create_puzzle' %}" style="max-width:400px;text-align:center;margin-bottom:1rem;background:#ebf8ff;color:#4299e1;">+ Create Puzzle</a>
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="puzzles">Puzzles</button>
+      <button class="tab" data-tab="duels">Duels{% if incoming_invites %} ({{ incoming_invites|length }}){% endif %}</button>
+    </div>
   {% endif %}
-  <div class="puzzle-list">
-    {% for p in puzzles %}
-      <div class="puzzle-item">
-        <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
-          {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
-          {{ p.name }}
-          {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
-        </a>
-        {% if p.created_by == user %}
-          <div class="owner-actions">
-            <a class="icon-btn edit-btn" href="{% url 'edit_puzzle' p.pk %}" title="Edit">&#9998;</a>
-            <button class="icon-btn delete-btn" onclick="deletePuzzle({{ p.pk }}, '{{ p.name|escapejs }}')" title="Delete">&times;</button>
-          </div>
-        {% endif %}
+
+  <div class="tab-panel active" id="panel-puzzles">
+    {% if user.is_authenticated %}
+      <a class="puzzle-link" href="{% url 'create_puzzle' %}" style="text-align:center;margin-bottom:1rem;background:#ebf8ff;color:#4299e1;">+ Create Puzzle</a>
+    {% endif %}
+    <div class="puzzle-list">
+      {% for p in puzzles %}
+        <div class="puzzle-item">
+          <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
+            {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
+            {{ p.name }}
+            {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
+          </a>
+          {% if p.created_by == user %}
+            <div class="owner-actions">
+              <a class="icon-btn edit-btn" href="{% url 'edit_puzzle' p.pk %}" title="Edit">&#9998;</a>
+              <button class="icon-btn delete-btn" onclick="deletePuzzle({{ p.pk }}, '{{ p.name|escapejs }}')" title="Delete">&times;</button>
+            </div>
+          {% endif %}
+        </div>
+      {% empty %}
+        <p class="empty">No puzzles yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if user.is_authenticated %}
+  <div class="tab-panel" id="panel-duels">
+    {% if active_duel %}
+      <div class="card">
+        <h3>Active Duel</h3>
+        <p style="margin-bottom:0.75rem;color:#4a5568;font-size:0.95rem;">
+          You're in a duel with
+          <strong>{% if active_duel.inviter == user %}{{ active_duel.opponent.username }}{% else %}{{ active_duel.inviter.username }}{% endif %}</strong>
+          on <em>{{ active_duel.puzzle.name }}</em>.
+        </p>
+        <a class="btn btn-primary" href="{% url 'duel_detail' active_duel.pk %}" style="text-decoration:none;display:inline-block;">Resume duel</a>
       </div>
-    {% empty %}
-      <p class="empty">No puzzles yet.</p>
-    {% endfor %}
+    {% endif %}
+
+    {% if incoming_invites %}
+      <div class="card">
+        <h3>Incoming invites</h3>
+        {% for inv in incoming_invites %}
+          <div class="invite-item" data-duel="{{ inv.pk }}">
+            <div class="who">
+              <strong>{{ inv.inviter.username }}</strong>
+              <span>{{ inv.puzzle.name }}</span>
+            </div>
+            <button class="btn btn-success" onclick="acceptInvite({{ inv.pk }})">Accept</button>
+            <button class="btn btn-danger" onclick="declineInvite({{ inv.pk }})">Decline</button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if outgoing_invite %}
+      <div class="card" id="outgoing-card">
+        <h3>Waiting</h3>
+        <p class="pulse" style="color:#4a5568;font-size:0.95rem;margin-bottom:0.75rem;">
+          Invite sent to <strong>{{ outgoing_invite.opponent.username }}</strong> for <em>{{ outgoing_invite.puzzle.name }}</em>.
+        </p>
+        <button class="btn btn-secondary" onclick="cancelInvite({{ outgoing_invite.pk }})">Cancel invite</button>
+      </div>
+    {% elif not active_duel %}
+      <div class="card">
+        <h3>Challenge someone</h3>
+        <div class="field">
+          <label for="opp-username">Opponent username</label>
+          <input type="text" id="opp-username" placeholder="username">
+        </div>
+
+        <div class="gen-toggle">
+          <input type="checkbox" id="generate-toggle">
+          <label for="generate-toggle">Generate a new puzzle for the duel</label>
+        </div>
+
+        <div class="field" id="existing-puzzle-field">
+          <label for="puzzle-select">Puzzle</label>
+          <select id="puzzle-select">
+            {% for p in puzzles %}
+              <option value="{{ p.pk }}">{{ p.name }}{% if p.created_by %} (by {{ p.created_by.username }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field" id="model-field" style="display:none">
+          <label for="model-select">Model</label>
+          <select id="model-select">
+            <option value="curated">Pre-generated</option>
+            {% for key, label in available_models.items %}
+              <option value="{{ key }}" {% if key == "conceptnet-numberbatch-en" %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field" id="count-field" style="display:none">
+          <label for="gen-count">Combinations</label>
+          <input type="number" id="gen-count" value="5" min="1" max="10">
+        </div>
+
+        <button class="btn btn-primary" id="send-invite-btn" onclick="sendInvite()">Send invite</button>
+        <div class="error" id="invite-error" style="display:none"></div>
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="toast-backdrop" id="invite-toast">
+    <div class="toast">
+      <h3 id="toast-title"></h3>
+      <p id="toast-body"></p>
+      <div class="btn-row">
+        <button class="btn btn-success" id="toast-accept">Accept</button>
+        <button class="btn btn-danger" id="toast-decline">Decline</button>
+      </div>
+    </div>
   </div>
 
   <script>
     const csrfToken = "{{ csrf_token }}";
+    const isAuthed = {% if user.is_authenticated %}true{% else %}false{% endif %};
 
     function deletePuzzle(id, name) {
       if (!confirm(`Delete "${name}"?`)) return;
-
       fetch(`/puzzle/${id}/delete/`, {
         method: "POST",
         headers: { "X-CSRFToken": csrfToken },
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.ok) location.reload();
-        });
+      }).then(r => r.json()).then(data => {
+        if (data.ok) location.reload();
+      });
     }
+
+    // Tab switching
+    const tabs = document.querySelectorAll(".tab");
+    tabs.forEach(t => t.addEventListener("click", () => {
+      tabs.forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      document.getElementById(`panel-${t.dataset.tab}`).classList.add("active");
+    }));
+
+    if (!isAuthed) {
+      // No duel UI for anonymous users.
+    } else {
+      const genToggle = document.getElementById("generate-toggle");
+      const existingField = document.getElementById("existing-puzzle-field");
+      const modelField = document.getElementById("model-field");
+      const countField = document.getElementById("count-field");
+      if (genToggle) {
+        genToggle.addEventListener("change", () => {
+          const gen = genToggle.checked;
+          existingField.style.display = gen ? "none" : "";
+          modelField.style.display = gen ? "" : "none";
+          countField.style.display = gen ? "" : "none";
+        });
+      }
+    }
+
+    async function postJson(url, body) {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+        body: JSON.stringify(body || {}),
+      });
+      return { status: r.status, data: await r.json().catch(() => ({})) };
+    }
+
+    async function sendInvite() {
+      const btn = document.getElementById("send-invite-btn");
+      const err = document.getElementById("invite-error");
+      err.style.display = "none";
+      const opponent = document.getElementById("opp-username").value.trim();
+      if (!opponent) { err.textContent = "Enter a username."; err.style.display = "block"; return; }
+      const generate = document.getElementById("generate-toggle").checked;
+      const body = { opponent };
+      if (generate) {
+        body.generate = true;
+        body.model = document.getElementById("model-select").value;
+        body.count = parseInt(document.getElementById("gen-count").value) || 5;
+      } else {
+        const sel = document.getElementById("puzzle-select");
+        if (!sel.value) { err.textContent = "Pick a puzzle."; err.style.display = "block"; return; }
+        body.puzzle_id = parseInt(sel.value);
+      }
+      btn.disabled = true;
+      btn.textContent = generate ? "Generating..." : "Sending...";
+      const { status, data } = await postJson("{% url 'create_duel' %}", body);
+      btn.disabled = false;
+      btn.textContent = "Send invite";
+      if (status >= 400) {
+        err.textContent = data.error || "Failed to send invite.";
+        err.style.display = "block";
+        return;
+      }
+      location.reload();
+    }
+
+    async function cancelInvite(id) {
+      await postJson(`/duel/${id}/cancel/`, {});
+      location.reload();
+    }
+
+    async function acceptInvite(id) {
+      const { status, data } = await postJson(`/duel/${id}/accept/`, {});
+      if (status >= 400) { alert(data.error || "Failed to accept."); return; }
+      window.location.href = data.url;
+    }
+
+    async function declineInvite(id) {
+      await postJson(`/duel/${id}/decline/`, {});
+      location.reload();
+    }
+
+    // Lobby WebSocket for live invite events
+    if (isAuthed) {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${proto}//${location.host}/ws/lobby/`);
+      ws.onmessage = ev => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "invite_received") {
+          showInviteToast(msg.duel);
+        } else if (msg.type === "invite_accepted") {
+          window.location.href = msg.url;
+        } else if (msg.type === "invite_declined" || msg.type === "invite_cancelled") {
+          location.reload();
+        }
+      };
+    }
+
+    let pendingInviteDuelId = null;
+    const toast = document.getElementById("invite-toast");
+    function showInviteToast(duel) {
+      pendingInviteDuelId = duel.id;
+      document.getElementById("toast-title").textContent = `${duel.inviter} challenged you!`;
+      document.getElementById("toast-body").textContent = `Puzzle: ${duel.puzzle_name}`;
+      toast.classList.add("show");
+    }
+    document.getElementById("toast-accept").addEventListener("click", async () => {
+      if (pendingInviteDuelId == null) return;
+      const { status, data } = await postJson(`/duel/${pendingInviteDuelId}/accept/`, {});
+      if (status >= 400) { alert(data.error || "Failed to accept."); return; }
+      window.location.href = data.url;
+    });
+    document.getElementById("toast-decline").addEventListener("click", async () => {
+      if (pendingInviteDuelId == null) return;
+      await postJson(`/duel/${pendingInviteDuelId}/decline/`, {});
+      toast.classList.remove("show");
+      pendingInviteDuelId = null;
+      location.reload();
+    });
   </script>
 </body>
 </html>
