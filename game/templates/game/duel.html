@@ -46,6 +46,8 @@
       font-size: 1.05rem;
       cursor: grab;
       user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
       transition: transform 0.1s, opacity 0.15s;
     }
     .word-bubble:active { cursor: grabbing; }
@@ -79,15 +81,20 @@
       font-size: 1rem;
       font-weight: 500;
       color: #2d3748;
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
       transition: border-color 0.15s, background 0.15s;
     }
+    .drop-box.dragging { opacity: 0.5; }
     .drop-box.drag-over { border-color: #4299e1; background: #ebf8ff; }
     .drop-box.filled {
       border-style: solid;
       border-color: #4299e1;
       background: #ebf8ff;
-      cursor: pointer;
+      cursor: grab;
     }
+    .drop-box.filled:active { cursor: grabbing; }
     .drop-box.slot-wrong {
       border-color: #e53e3e;
       background: #fee2e2;
@@ -149,6 +156,23 @@
       border-radius: 5px;
     }
     .player.opponent .bar-fill { background: #ed8936; }
+
+    .surrender-btn {
+      margin-top: 1.25rem;
+      width: 100%;
+      background: #fff5f5;
+      color: #e53e3e;
+      border: 1px solid #fed7d7;
+      border-radius: 0.35rem;
+      padding: 0.55rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .surrender-btn:hover { background: #fee2e2; border-color: #feb2b2; }
+    .surrender-btn:disabled { opacity: 0.55; cursor: default; }
 
     /* Overlays */
     .overlay {
@@ -219,6 +243,9 @@
         <div class="player-count"><span id="opp-count">{{ opp_count }}</span> / {{ total }} solved</div>
         <div class="bar"><div class="bar-fill" id="opp-bar" style="width:0%"></div></div>
       </div>
+      {% if duel.status == "active" %}
+        <button type="button" class="surrender-btn" id="surrender-btn">Surrender</button>
+      {% endif %}
     </aside>
   </div>
 
@@ -303,6 +330,9 @@
       box.className = "drop-box";
       box.dataset.combo = comboIndex;
       box.dataset.slot = slot;
+      box.draggable = true;
+      box.addEventListener("dragstart", onBoxDragStart);
+      box.addEventListener("dragend", onBoxDragEnd);
       box.addEventListener("dragover", onDragOver);
       box.addEventListener("dragleave", onDragLeave);
       box.addEventListener("drop", onDrop);
@@ -310,27 +340,81 @@
       return box;
     }
 
+    // Track both the word being dragged and, if dragging from a box, which box it came from.
     let dragIndex = null;
+    let dragSourceBox = null;
+
     function onDragStart(e) {
       const b = e.target;
       if (b.classList.contains("placed")) { e.preventDefault(); return; }
       dragIndex = b.dataset.index;
+      dragSourceBox = null;
       b.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
     }
-    function onDragEnd(e) { e.target.classList.remove("dragging"); dragIndex = null; }
+    function onDragEnd(e) { e.target.classList.remove("dragging"); dragIndex = null; dragSourceBox = null; }
+
+    function onBoxDragStart(e) {
+      const box = e.currentTarget;
+      if (box.dataset.wordIndex === undefined) { e.preventDefault(); return; }
+      dragIndex = box.dataset.wordIndex;
+      dragSourceBox = box;
+      box.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    }
+    function onBoxDragEnd(e) {
+      e.currentTarget.classList.remove("dragging");
+      dragIndex = null;
+      dragSourceBox = null;
+    }
+
     function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }
     function onDragLeave(e) { e.currentTarget.classList.remove("drag-over"); }
+
     function onDrop(e) {
       e.preventDefault();
       const box = e.currentTarget;
       box.classList.remove("drag-over");
-      if (dragIndex === null || box.dataset.wordIndex !== undefined) return;
-      const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
-      bubble.classList.remove("dragging");
-      placeWord(bubble, box);
-      dragIndex = null;
+      if (dragIndex === null) return;
+      if (box === dragSourceBox) return;
+
+      const targetWordIdx = box.dataset.wordIndex;
+      const sourceBoxCombo = dragSourceBox ? dragSourceBox.dataset.combo : null;
+
+      if (dragSourceBox) {
+        // Moving a word from one box to another: swap if target is filled, else just move.
+        if (targetWordIdx !== undefined) {
+          setBoxWord(dragSourceBox, parseInt(targetWordIdx));
+        } else {
+          clearBox(dragSourceBox);
+        }
+      } else {
+        // Moving from the bank. If target is filled, bounce that word back to the bank.
+        if (targetWordIdx !== undefined) {
+          const existing = bank.querySelector(`[data-index="${targetWordIdx}"]`);
+          if (existing) existing.classList.remove("placed");
+        }
+        const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
+        if (bubble) bubble.classList.add("placed");
+      }
+      setBoxWord(box, parseInt(dragIndex));
+
+      // Re-check row state. If we moved between different combos, the source row is now
+      // partially filled; its slot classes were already cleared by clearBox/setBoxWord.
+      if (sourceBoxCombo !== null && sourceBoxCombo !== box.dataset.combo) {
+        maybeCheckRow(sourceBoxCombo);
+      }
+      maybeCheckRow(box.dataset.combo);
     }
+
+    // Only call tryRow when a combo has all three slots filled.
+    function maybeCheckRow(comboIdx) {
+      const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
+      if (Array.from(boxes).every(b => b.dataset.wordIndex !== undefined)) {
+        tryRow(comboIdx);
+      }
+    }
+
     function onBubbleClick(e) {
       const b = e.target;
       if (b.classList.contains("placed")) return;
@@ -343,18 +427,36 @@
       if (box.dataset.wordIndex === undefined) return;
       const idx = box.dataset.wordIndex;
       const bubble = bank.querySelector(`[data-index="${idx}"]`);
-      bubble.classList.remove("placed");
+      if (bubble) bubble.classList.remove("placed");
+      clearBox(box);
+    }
+    function placeWord(bubble, box) {
+      bubble.classList.add("placed");
+      setBoxWord(box, parseInt(bubble.dataset.index));
+      tryRow(box.dataset.combo);
+    }
+
+    function setBoxWord(box, wordIdx) {
+      box.textContent = words[wordIdx].text;
+      box.dataset.wordIndex = wordIdx;
+      box.classList.add("filled");
+      box.classList.remove("slot-wrong", "slot-correct");
+    }
+    function clearBox(box) {
       box.textContent = "";
       delete box.dataset.wordIndex;
       box.classList.remove("filled", "slot-wrong", "slot-correct");
     }
-    function placeWord(bubble, box) {
-      bubble.classList.add("placed");
-      box.textContent = words[bubble.dataset.index].text;
-      box.dataset.wordIndex = bubble.dataset.index;
-      box.classList.add("filled");
-      tryRow(box.dataset.combo);
-    }
+
+    // Allow dropping back onto the bank to release a word from its box.
+    bank.addEventListener("dragover", e => { if (dragSourceBox) e.preventDefault(); });
+    bank.addEventListener("drop", e => {
+      if (!dragSourceBox || dragIndex === null) return;
+      e.preventDefault();
+      clearBox(dragSourceBox);
+      const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
+      if (bubble) bubble.classList.remove("placed");
+    });
 
     function tryRow(comboIdx) {
       const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
@@ -380,6 +482,20 @@
             boxes.forEach(b => { b.classList.remove("slot-correct"); b.classList.add("slot-wrong"); });
           }
         });
+    }
+
+    const surrenderBtn = document.getElementById("surrender-btn");
+    if (surrenderBtn) {
+      surrenderBtn.addEventListener("click", async () => {
+        if (!confirm("Surrender this duel? Your opponent will win.")) return;
+        surrenderBtn.disabled = true;
+        await fetch(`/duel/${duelId}/surrender/`, {
+          method: "POST",
+          headers: {"X-CSRFToken": csrfToken, "Content-Type": "application/json"},
+          body: "{}",
+        });
+        // The server broadcasts duel_ended; the WS handler shows the lose overlay.
+      });
     }
 
     // WebSocket

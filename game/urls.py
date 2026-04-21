@@ -22,4 +22,5 @@ urlpatterns = [
     path("duel/<int:pk>/decline/", views.decline_duel, name="decline_duel"),
     path("duel/<int:pk>/", views.duel_detail, name="duel_detail"),
     path("duel/<int:pk>/row-solved/", views.duel_row_solved, name="duel_row_solved"),
+    path("duel/<int:pk>/surrender/", views.duel_surrender, name="duel_surrender"),
 ]

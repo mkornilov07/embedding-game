@@ -342,7 +342,7 @@
         <div class="field" id="existing-puzzle-field">
           <label for="puzzle-select">Puzzle</label>
           <select id="puzzle-select">
-            {% for p in puzzles %}
+            {% for p in dropdown_puzzles %}
               <option value="{{ p.pk }}">{{ p.name }}{% if p.created_by %} (by {{ p.created_by.username }}){% endif %}</option>
             {% endfor %}
           </select>

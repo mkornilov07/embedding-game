@@ -41,6 +41,8 @@
       font-size: 1.1rem;
       cursor: grab;
       user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
       transition: transform 0.1s, box-shadow 0.1s;
     }
 
@@ -167,6 +169,9 @@
       font-size: 1.1rem;
       font-weight: 500;
       color: #2d3748;
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
     }
 
     .drop-box.drag-over {
@@ -178,8 +183,10 @@
       border-style: solid;
       border-color: #4299e1;
       background: #ebf8ff;
-      cursor: pointer;
+      cursor: grab;
     }
+    .drop-box.filled:active { cursor: grabbing; }
+    .drop-box.dragging { opacity: 0.5; }
 
     .operator {
       font-size: 1.4rem;
@@ -506,6 +513,9 @@
       box.className = "drop-box";
       box.dataset.combo = comboIndex;
       box.dataset.slot = slot;
+      box.draggable = true;
+      box.addEventListener("dragstart", onBoxDragStart);
+      box.addEventListener("dragend", onBoxDragEnd);
       box.addEventListener("dragover", onDragOver);
       box.addEventListener("dragleave", onDragLeave);
       box.addEventListener("drop", onDrop);
@@ -514,6 +524,7 @@
     }
 
     let dragIndex = null;
+    let dragSourceBox = null;
 
     function onDragStart(e) {
       const bubble = e.target;
@@ -522,17 +533,49 @@
         return;
       }
       dragIndex = bubble.dataset.index;
+      dragSourceBox = null;
       bubble.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
     }
 
+    function onDragEnd(e) {
+      e.target.classList.remove("dragging");
+      dragIndex = null;
+      dragSourceBox = null;
+    }
+
+    function onBoxDragStart(e) {
+      const box = e.currentTarget;
+      if (box.dataset.wordIndex === undefined) { e.preventDefault(); return; }
+      dragIndex = box.dataset.wordIndex;
+      dragSourceBox = box;
+      box.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    }
+
+    function onBoxDragEnd(e) {
+      e.currentTarget.classList.remove("dragging");
+      dragIndex = null;
+      dragSourceBox = null;
+    }
+
     function placeWord(bubble, box) {
       bubble.classList.add("placed");
-      box.textContent = words[bubble.dataset.index].text;
-      box.dataset.wordIndex = bubble.dataset.index;
-      box.classList.add("filled");
+      setBoxWord(box, parseInt(bubble.dataset.index));
       checkRowIfFull(box.dataset.combo);
       checkAllFilled();
+    }
+
+    function setBoxWord(box, wordIdx) {
+      box.textContent = words[wordIdx].text;
+      box.dataset.wordIndex = wordIdx;
+      box.classList.add("filled");
+    }
+
+    function clearBox(box) {
+      box.textContent = "";
+      delete box.dataset.wordIndex;
+      box.classList.remove("filled");
     }
 
     function onBubbleClick(e) {
@@ -541,11 +584,6 @@
       const box = document.querySelector(".drop-box:not(.filled)");
       if (!box) return;
       placeWord(bubble, box);
-    }
-
-    function onDragEnd(e) {
-      e.target.classList.remove("dragging");
-      dragIndex = null;
     }
 
     function onDragOver(e) {
@@ -563,12 +601,40 @@
       box.classList.remove("drag-over");
 
       if (dragIndex === null) return;
-      if (box.dataset.wordIndex !== undefined) return;
+      if (box === dragSourceBox) return;
 
-      const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
-      bubble.classList.remove("dragging");
-      placeWord(bubble, box);
-      dragIndex = null;
+      const targetWordIdx = box.dataset.wordIndex;
+      const sourceCombo = dragSourceBox ? dragSourceBox.dataset.combo : null;
+
+      if (dragSourceBox) {
+        // Box-to-box move: swap if target filled, else empty the source.
+        if (targetWordIdx !== undefined) {
+          setBoxWord(dragSourceBox, parseInt(targetWordIdx));
+        } else {
+          clearBox(dragSourceBox);
+        }
+      } else {
+        // Bank-to-box: bounce the occupying word back to the bank first.
+        if (targetWordIdx !== undefined) {
+          const existing = bank.querySelector(`[data-index="${targetWordIdx}"]`);
+          if (existing) existing.classList.remove("placed");
+        }
+        const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
+        if (bubble) {
+          bubble.classList.remove("dragging");
+          bubble.classList.add("placed");
+        }
+      }
+      setBoxWord(box, parseInt(dragIndex));
+
+      // Re-evaluate solved/slot state for every affected combo.
+      if (sourceCombo !== null && sourceCombo !== box.dataset.combo) {
+        clearRowState(sourceCombo);
+        checkRowIfFull(sourceCombo);
+      }
+      clearRowState(box.dataset.combo);
+      checkRowIfFull(box.dataset.combo);
+      checkAllFilled();
     }
 
     function onBoxClick(e) {
@@ -578,14 +644,22 @@
       const comboIdx = box.dataset.combo;
       const idx = box.dataset.wordIndex;
       const bubble = bank.querySelector(`[data-index="${idx}"]`);
-      bubble.classList.remove("placed");
-
-      box.textContent = "";
-      delete box.dataset.wordIndex;
-      box.classList.remove("filled");
-
+      if (bubble) bubble.classList.remove("placed");
+      clearBox(box);
       clearRowState(comboIdx);
     }
+
+    // Drop onto the bank to release a word from its box.
+    bank.addEventListener("dragover", e => { if (dragSourceBox) e.preventDefault(); });
+    bank.addEventListener("drop", e => {
+      if (!dragSourceBox || dragIndex === null) return;
+      e.preventDefault();
+      const comboIdx = dragSourceBox.dataset.combo;
+      clearBox(dragSourceBox);
+      const bubble = bank.querySelector(`[data-index="${dragIndex}"]`);
+      if (bubble) bubble.classList.remove("placed");
+      clearRowState(comboIdx);
+    });
 
     function clearRowState(comboIdx) {
       const boxes = document.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);

@@ -18,8 +18,11 @@ from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordSum
 
 
 def puzzle_list(request):
-    puzzles = Puzzle.objects.select_related("created_by").order_by("for_duel", "-pk")
+    puzzles = list(Puzzle.objects.select_related("created_by").order_by("-pk"))
     has_duel_puzzles = any(p.for_duel for p in puzzles)
+    # Dropdown in the duel form keeps duel-generated puzzles at the bottom.
+    # Python's sort is stable, so within each group the -pk chronological order is preserved.
+    dropdown_puzzles = sorted(puzzles, key=lambda p: p.for_duel)
     completed_ids = set()
     incoming_invites = []
     outgoing_invite = None
@@ -44,6 +47,7 @@ def puzzle_list(request):
         )
     return render(request, "game/puzzle_list.html", {
         "puzzles": puzzles,
+        "dropdown_puzzles": dropdown_puzzles,
         "completed_ids": completed_ids,
         "available_models": AVAILABLE_MODELS,
         "incoming_invites": incoming_invites,
@@ -482,6 +486,27 @@ def duel_detail(request, pk):
         "opp_count": opp_progress.count if opp_progress else 0,
         "winner_username": duel.winner.username if duel.winner else "",
     })
+
+
+@login_required
+@require_POST
+def duel_surrender(request, pk):
+    duel = get_object_or_404(Duel, pk=pk, status=Duel.STATUS_ACTIVE)
+    if request.user.id not in (duel.inviter_id, duel.opponent_id):
+        return JsonResponse({"error": "Not a participant."}, status=403)
+    winner = duel.other_player(request.user)
+    duel.status = Duel.STATUS_COMPLETED
+    duel.winner = winner
+    duel.completed_at = timezone.now()
+    duel.save(update_fields=["status", "winner", "completed_at"])
+    _duel_send(duel.pk, {
+        "type": "duel_ended",
+        "winner_id": winner.id,
+        "winner_username": winner.username,
+        "surrender": True,
+        "loser_username": request.user.username,
+    })
+    return JsonResponse({"ok": True})
 
 
 @login_required
