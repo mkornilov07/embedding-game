@@ -74,6 +74,86 @@
       font-weight: 600;
     }
 
+    .solved-section {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .solved-section[hidden] { display: none; }
+
+    .solved-section:not([hidden]) {
+      animation: section-enter 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+
+    @keyframes section-enter {
+      from { opacity: 0; transform: translateY(-10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .solved-header {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      background: #d1fae5;
+      color: #065f46;
+      border: 2px solid #10b981;
+      border-radius: 9999px;
+      padding: 0.4rem 1.1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      align-self: center;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    }
+
+    .solved-header:hover {
+      background: #a7f3d0;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+    }
+
+    .solved-header:active { transform: scale(0.97); }
+
+    .solved-chevron {
+      display: inline-block;
+      font-size: 0.7rem;
+      line-height: 1;
+      transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+
+    .solved-section:not(.collapsed) .solved-chevron {
+      transform: rotate(180deg);
+    }
+
+    .solved-list-wrapper {
+      display: grid;
+      grid-template-rows: 1fr;
+      transition: grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+
+    .solved-section.collapsed .solved-list-wrapper {
+      grid-template-rows: 0fr;
+    }
+
+    .solved-list {
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .solved-list > .equation {
+      animation: row-enter 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
+    }
+
+    @keyframes row-enter {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
     .drop-box {
       width: 130px;
       height: 48px;
@@ -285,7 +365,17 @@
 
   <div class="word-bank" id="word-bank"></div>
 
-  <div class="equations" id="equations"></div>
+  <div class="equations" id="equations">
+    <div class="solved-section collapsed" id="solved-section" hidden>
+      <button type="button" class="solved-header" id="solved-toggle" aria-expanded="false">
+        <span id="solved-count"></span>
+        <span class="solved-chevron">&#x25BE;</span>
+      </button>
+      <div class="solved-list-wrapper">
+        <div class="solved-list" id="solved-list"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="overlay overlay-wrong" id="overlay-wrong" onclick="dismissOverlay()">
     <div class="icon">&#x2717;</div>
@@ -337,6 +427,72 @@
 
       eqContainer.appendChild(row);
     });
+
+    const solvedSection = document.getElementById("solved-section");
+    const solvedList = document.getElementById("solved-list");
+    const solvedCount = document.getElementById("solved-count");
+    const solvedToggle = document.getElementById("solved-toggle");
+
+    solvedToggle.addEventListener("click", () => {
+      const collapsed = solvedSection.classList.toggle("collapsed");
+      solvedToggle.setAttribute("aria-expanded", String(!collapsed));
+    });
+
+    // Short delay before whisking a correct row away, so the user
+    // registers the green slot confirmation first.
+    const SOLVE_DELAY_MS = 450;
+    const pendingSolve = new Map();
+
+    function cancelPendingSolve(comboIdx) {
+      const t = pendingSolve.get(comboIdx);
+      if (t !== undefined) {
+        clearTimeout(t);
+        pendingSolve.delete(comboIdx);
+      }
+    }
+
+    function scheduleSolve(row) {
+      const comboIdx = row.dataset.combo;
+      cancelPendingSolve(comboIdx);
+      const t = setTimeout(() => {
+        pendingSolve.delete(comboIdx);
+        markRowSolved(row);
+      }, SOLVE_DELAY_MS);
+      pendingSolve.set(comboIdx, t);
+    }
+
+    function markRowSolved(row) {
+      if (row.parentElement === solvedList) return;
+      solvedList.appendChild(row);
+      updateSolvedSection();
+    }
+
+    function markRowUnsolved(row) {
+      cancelPendingSolve(row.dataset.combo);
+      if (row.parentElement !== solvedList) return;
+      const comboIdx = parseInt(row.dataset.combo);
+      const siblings = eqContainer.querySelectorAll(":scope > .equation");
+      let inserted = false;
+      for (const sib of siblings) {
+        if (parseInt(sib.dataset.combo) > comboIdx) {
+          eqContainer.insertBefore(row, sib);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) eqContainer.appendChild(row);
+      updateSolvedSection();
+    }
+
+    function updateSolvedSection() {
+      const n = solvedList.children.length;
+      if (n === 0) {
+        solvedSection.hidden = true;
+        return;
+      }
+      solvedSection.hidden = false;
+      solvedCount.textContent = `${n} solved \u2713`;
+    }
 
     function addOperator(row, text) {
       const op = document.createElement("span");
@@ -436,6 +592,8 @@
       boxes.forEach(b => {
         b.classList.remove("slot-wrong", "slot-correct");
       });
+      const row = document.querySelector(`.equation[data-combo="${comboIdx}"]`);
+      if (row) markRowUnsolved(row);
     }
 
     function checkRowIfFull(comboIdx) {
@@ -466,6 +624,12 @@
               box.classList.add("slot-correct");
             }
           });
+          const row = document.querySelector(`.equation[data-combo="${comboIdx}"]`);
+          if (wrongSet.size === 0) {
+            scheduleSolve(row);
+          } else {
+            markRowUnsolved(row);
+          }
         });
     }
 
