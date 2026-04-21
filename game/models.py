@@ -7,6 +7,7 @@ class Puzzle(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="puzzles",
     )
+    for_duel = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
@@ -38,3 +39,51 @@ class PuzzleCompletion(models.Model):
 
     def __str__(self):
         return f"{self.user} completed {self.puzzle}"
+
+
+class Duel(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_ACTIVE = "active"
+    STATUS_COMPLETED = "completed"
+    STATUS_DECLINED = "declined"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_DECLINED, "Declined"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    inviter = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="duels_sent",
+    )
+    opponent = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="duels_received",
+    )
+    puzzle = models.ForeignKey(Puzzle, on_delete=models.CASCADE, related_name="duels")
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    winner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="duels_won",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def other_player(self, user):
+        return self.opponent if user == self.inviter else self.inviter
+
+
+class DuelProgress(models.Model):
+    duel = models.ForeignKey(Duel, on_delete=models.CASCADE, related_name="progresses")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    # Each entry is [sorted_addends_list, sum_word]; used as a set-like dedupe key.
+    solved_rows = models.JSONField(default=list)
+
+    class Meta:
+        unique_together = ("duel", "user")
+
+    @property
+    def count(self):
+        return len(self.solved_rows)
