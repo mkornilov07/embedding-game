@@ -61,11 +61,11 @@
 <script src="{% static 'game/board.js' %}"></script>
 <script>
   const duelId = {{ duel.pk }};
-  const myUserId = {{ request.user.id }};
   const total = {{ total }};
   const words = {{ words_json|safe }};
   const combinations = {{ combinations_json|safe }};
   const rowSolvedUrl = "{% url 'duel_row_solved' duel.pk %}";
+  const stateUrl = "{% url 'duel_state' duel.pk %}";
   const csrfToken = "{{ csrf_token }}";
   const alreadyFinished = {% if winner_username %}true{% else %}false{% endif %};
   const preWinner = "{{ winner_username|escapejs }}";
@@ -123,23 +123,6 @@
     });
   }
 
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/ws/duel/${duelId}/`);
-  ws.onmessage = ev => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === "progress") {
-      if (msg.user_id === myUserId) {
-        myCountEl.textContent = msg.count;
-        updateBar(myBar, msg.count);
-      } else {
-        oppCountEl.textContent = msg.count;
-        updateBar(oppBar, msg.count);
-      }
-    } else if (msg.type === "duel_ended") {
-      showEnd(msg.winner_id === myUserId, msg.winner_username);
-    }
-  };
-
   function showEnd(won, winnerName) {
     if (won) {
       document.getElementById("overlay-win").classList.add("show");
@@ -150,7 +133,27 @@
     }
   }
 
-  // If the page was loaded after the duel already ended, show the result immediately.
-  if (alreadyFinished) showEnd(preWinner === myUsername, preWinner);
+  if (alreadyFinished) {
+    showEnd(preWinner === myUsername, preWinner);
+  } else {
+    let pollTimer = null;
+    async function pollOnce() {
+      try {
+        const r = await fetch(stateUrl, {headers: {"Accept": "application/json"}});
+        if (!r.ok) return;
+        const s = await r.json();
+        myCountEl.textContent = s.my_count;
+        oppCountEl.textContent = s.opp_count;
+        updateBar(myBar, s.my_count);
+        updateBar(oppBar, s.opp_count);
+        if (s.status === "completed") {
+          clearInterval(pollTimer);
+          showEnd(s.winner_is_me, s.winner_username);
+        }
+      } catch (_) { /* network blip — next tick will retry */ }
+    }
+    pollTimer = setInterval(pollOnce, 1500);
+    pollOnce();
+  }
 </script>
 {% endblock %}

@@ -314,26 +314,48 @@
     });
   }
 
-  // Lobby WebSocket for live invite events
+  // Lobby polling: reconcile the banner against server-side state.
+  // Tracks the last-seen banner mode so we can detect transitions
+  // (e.g. outgoing-pending -> gone => declined or cancelled => reload).
   if (isAuthed) {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/lobby/`);
-    ws.onmessage = ev => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === "invite_received") {
-        showBanner("incoming", msg.duel);
-      } else if (msg.type === "invite_cancelled") {
-        // Inviter withdrew: slide the banner away.
-        hideBanner();
-      } else if (msg.type === "invite_accepted") {
-        window.location.href = msg.url;
-      } else if (msg.type === "invite_declined") {
-        // Opponent declined our invite — hide the banner and refresh to
-        // bring the challenge form back.
-        hideBanner();
-        setTimeout(() => location.reload(), 400);
-      }
-    };
+    let lastMode = banner ? (banner.dataset.mode || "") : "";
+    async function pollLobby() {
+      try {
+        const r = await fetch("{% url 'lobby_state' %}", {headers: {"Accept": "application/json"}});
+        if (!r.ok) return;
+        const s = await r.json();
+        if (s.active_duel_url) {
+          window.location.href = s.active_duel_url;
+          return;
+        }
+        if (s.outgoing) {
+          showBanner("outgoing", {
+            id: s.outgoing.id,
+            opponent: s.outgoing.opponent,
+            puzzle_name: s.outgoing.puzzle_name,
+          });
+          lastMode = "outgoing";
+        } else if (s.incoming) {
+          showBanner("incoming", {
+            id: s.incoming.id,
+            inviter: s.incoming.inviter,
+            puzzle_name: s.incoming.puzzle_name,
+          });
+          lastMode = "incoming";
+        } else {
+          if (lastMode === "outgoing") {
+            // Our pending invite is gone (declined or auto-cleaned). Reload
+            // so the "Challenge someone" form comes back.
+            location.reload();
+            return;
+          }
+          hideBanner();
+          lastMode = "";
+        }
+      } catch (_) { /* network blip — next tick will retry */ }
+    }
+    setInterval(pollLobby, 3000);
+    pollLobby();
   }
 </script>
 {% endblock %}

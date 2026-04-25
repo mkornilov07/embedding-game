@@ -2,8 +2,6 @@ import json
 import random
 import traceback
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
@@ -349,28 +347,46 @@ def _user_has_open_duel(user):
     ).exists()
 
 
-def _lobby_send(user_id, payload):
-    layer = get_channel_layer()
-    async_to_sync(layer.group_send)(
-        f"lobby_{user_id}", {"type": "lobby_event", "data": payload}
+@login_required
+def lobby_state(request):
+    """Snapshot of the requesting user's lobby — drives client-side polling."""
+    user = request.user
+    incoming = (
+        Duel.objects.filter(opponent=user, status=Duel.STATUS_PENDING)
+        .select_related("inviter", "puzzle")
+        .first()
     )
-
-
-def _duel_send(duel_id, payload):
-    layer = get_channel_layer()
-    async_to_sync(layer.group_send)(
-        f"duel_{duel_id}", {"type": "duel_event", "data": payload}
+    outgoing = (
+        Duel.objects.filter(inviter=user, status=Duel.STATUS_PENDING)
+        .select_related("opponent", "puzzle")
+        .first()
     )
-
-
-def _duel_summary(duel):
-    return {
-        "id": duel.pk,
-        "inviter": duel.inviter.username,
-        "opponent": duel.opponent.username,
-        "puzzle_name": duel.puzzle.name,
-        "url": reverse("duel_detail", args=[duel.pk]),
-    }
+    active = (
+        Duel.objects.filter(status=Duel.STATUS_ACTIVE)
+        .filter(Q(inviter=user) | Q(opponent=user))
+        .first()
+    )
+    return JsonResponse({
+        "incoming": (
+            {
+                "id": incoming.pk,
+                "inviter": incoming.inviter.username,
+                "puzzle_name": incoming.puzzle.name,
+            }
+            if incoming else None
+        ),
+        "outgoing": (
+            {
+                "id": outgoing.pk,
+                "opponent": outgoing.opponent.username,
+                "puzzle_name": outgoing.puzzle.name,
+            }
+            if outgoing else None
+        ),
+        "active_duel_url": (
+            reverse("duel_detail", args=[active.pk]) if active else None
+        ),
+    })
 
 
 @login_required
@@ -443,11 +459,6 @@ def create_duel(request):
         inviter=request.user, opponent=opponent, puzzle=puzzle,
         status=Duel.STATUS_PENDING,
     )
-
-    _lobby_send(opponent.id, {
-        "type": "invite_received",
-        "duel": _duel_summary(duel),
-    })
     return JsonResponse({"duel_id": duel.pk})
 
 
@@ -457,7 +468,6 @@ def cancel_duel(request, pk):
     duel = get_object_or_404(Duel, pk=pk, inviter=request.user, status=Duel.STATUS_PENDING)
     duel.status = Duel.STATUS_CANCELLED
     duel.save(update_fields=["status"])
-    _lobby_send(duel.opponent_id, {"type": "invite_cancelled", "duel_id": duel.pk})
     return JsonResponse({"ok": True})
 
 
@@ -467,7 +477,6 @@ def decline_duel(request, pk):
     duel = get_object_or_404(Duel, pk=pk, opponent=request.user, status=Duel.STATUS_PENDING)
     duel.status = Duel.STATUS_DECLINED
     duel.save(update_fields=["status"])
-    _lobby_send(duel.inviter_id, {"type": "invite_declined", "duel_id": duel.pk})
     return JsonResponse({"ok": True})
 
 
@@ -482,9 +491,6 @@ def accept_duel(request, pk):
     DuelProgress.objects.get_or_create(duel=duel, user=duel.opponent)
 
     url = reverse("duel_detail", args=[duel.pk])
-    _lobby_send(duel.inviter_id, {
-        "type": "invite_accepted", "duel_id": duel.pk, "url": url,
-    })
     return JsonResponse({"duel_id": duel.pk, "url": url})
 
 
@@ -526,13 +532,6 @@ def duel_surrender(request, pk):
     duel.winner = winner
     duel.completed_at = timezone.now()
     duel.save(update_fields=["status", "winner", "completed_at"])
-    _duel_send(duel.pk, {
-        "type": "duel_ended",
-        "winner_id": winner.id,
-        "winner_username": winner.username,
-        "surrender": True,
-        "loser_username": request.user.username,
-    })
     return JsonResponse({"ok": True})
 
 
@@ -541,10 +540,10 @@ def duel_surrender(request, pk):
 def duel_row_solved(request, pk):
     """Same contract as check_row (returns green_slots/yellow_slots) plus duel bookkeeping.
 
-    If the row is fully correct, records it against the user's DuelProgress,
-    broadcasts a progress event, and (if this was the final row) a duel_ended
-    event. The response always includes the per-slot color hints so the duel
-    UI can render the same slot-level feedback the stand-alone puzzle page gets.
+    If the row is fully correct, records it against the user's DuelProgress
+    and (if this was the final row) marks the duel completed. The response
+    always includes the per-slot color hints so the duel UI can render the
+    same slot-level feedback the stand-alone puzzle page gets.
     """
     duel = get_object_or_404(Duel, pk=pk, status=Duel.STATUS_ACTIVE)
     if request.user.id not in (duel.inviter_id, duel.opponent_id):
@@ -586,23 +585,28 @@ def duel_row_solved(request, pk):
         duel.save(update_fields=["status", "winner", "completed_at"])
         PuzzleCompletion.objects.get_or_create(user=request.user, puzzle=duel.puzzle)
 
-    _duel_send(duel.pk, {
-        "type": "progress",
-        "user_id": request.user.id,
-        "username": request.user.username,
-        "count": my_count,
-        "total": total,
-    })
-    if finished:
-        _duel_send(duel.pk, {
-            "type": "duel_ended",
-            "winner_id": request.user.id,
-            "winner_username": request.user.username,
-        })
-
     return JsonResponse({
         "wrong_slots": [],
         "count": my_count,
         "total": total,
         "finished": finished,
+    })
+
+
+@login_required
+def duel_state(request, pk):
+    """Snapshot of a duel's progress + status — drives client-side polling."""
+    duel = get_object_or_404(Duel, pk=pk)
+    if request.user.id not in (duel.inviter_id, duel.opponent_id):
+        return JsonResponse({"error": "Not a participant."}, status=403)
+    opponent = duel.other_player(request.user)
+    my_progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
+    opp_progress = DuelProgress.objects.filter(duel=duel, user=opponent).first()
+    return JsonResponse({
+        "my_count": my_progress.count if my_progress else 0,
+        "opp_count": opp_progress.count if opp_progress else 0,
+        "total": duel.puzzle.combinations.count(),
+        "status": duel.status,
+        "winner_username": duel.winner.username if duel.winner else "",
+        "winner_is_me": duel.winner_id == request.user.id,
     })
