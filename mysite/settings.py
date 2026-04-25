@@ -45,7 +45,8 @@ CSRF_TRUSTED_ORIGINS = [
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-SECURE_SSL_REDIRECT = True
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
 
 
 # Application definition
@@ -135,13 +136,14 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-STORAGES = {
-    'default': {
-        'BACKEND': 'django.core.files.storage.FileSystemStorage',
-    },
-    'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
-    },
-}
+if not DEBUG:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        },
+    }
 
 LOGIN_REDIRECT_URL = '/'
