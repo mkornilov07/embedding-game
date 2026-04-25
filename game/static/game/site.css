@@ -250,6 +250,9 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
 .edit-btn:hover { color: var(--color-primary); background: var(--color-primary-soft); text-decoration: none; }
 .delete-btn { font-size: 1.25rem; }
 .delete-btn:hover { color: var(--color-danger); background: var(--color-danger-soft); }
+.pin-btn { transform: rotate(45deg); }
+.pin-btn:hover { color: #d69e2e; background: #fffbeb; }
+.pin-btn.pinned { color: #d69e2e; }
 
 /* ============================================================
  * Cards
@@ -270,6 +273,8 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
   margin-bottom: var(--space-3);
 }
 .auth-card { width: 100%; max-width: 380px; padding: var(--space-6); }
+.auth-submit { margin-top: var(--space-2); }
+.auth-alt { text-align: center; margin-top: var(--space-4); font-size: 0.95rem; }
 
 /* ============================================================
  * Tabs
@@ -490,6 +495,10 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
 }
 .puzzle-item { position: relative; }
 .puzzle-list:not(.show-duel) .puzzle-item--duel { display: none; }
+.puzzle-item.is-pinned .puzzle-link {
+  background: #fffbeb;
+  border-left: 3px solid #d69e2e;
+}
 .duel-filter {
   display: flex;
   align-items: center;

@@ -187,7 +187,7 @@ def register(request):
             return redirect("puzzle_list")
     else:
         form = UserCreationForm()
-    return render(request, "game/register.html", {"form": form})
+    return render(request, "game/auth.html", {"form": form, "mode": "register"})
 
 
 def _editable_puzzle_or_404(request, pk):
