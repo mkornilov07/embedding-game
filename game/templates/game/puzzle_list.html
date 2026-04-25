@@ -56,10 +56,13 @@
       {% for p in puzzles %}
         <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% endif %}{% if p.pinned %} is-pinned{% endif %}" data-puzzle-id="{{ p.pk }}">
           <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
-            {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
-            {{ p.name }}
-            {% if p.created_by %}<span class="author-line">by {{ p.created_by.username }}</span>{% endif %}
-            <span class="created-line">{{ p.created_at|timeago }}</span>
+            <span class="puzzle-link-text">
+              {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
+              {{ p.name }}
+              {% if p.created_by %}<span class="author-line">by {{ p.created_by.username }}</span>{% endif %}
+              <span class="created-line">{{ p.created_at|timeago }}</span>
+            </span>
+            <span class="play-btn">&#9654; Play</span>
           </a>
           {% if p.created_by == user or user.is_staff %}
             <div class="owner-actions">
