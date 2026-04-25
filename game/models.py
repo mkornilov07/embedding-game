@@ -9,6 +9,7 @@ class Puzzle(models.Model):
     )
     for_duel = models.BooleanField(default=False)
     pinned = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
         return self.name

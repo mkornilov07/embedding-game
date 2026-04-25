@@ -158,12 +158,12 @@
       box.textContent = words[wordIdx].text;
       box.dataset.wordIndex = wordIdx;
       box.classList.add("filled");
-      box.classList.remove("slot-wrong", "slot-correct");
+      box.classList.remove("slot-wrong", "slot-correct", "slot-shuffled");
     }
     function clearBox(box) {
       box.textContent = "";
       delete box.dataset.wordIndex;
-      box.classList.remove("filled", "slot-wrong", "slot-correct");
+      box.classList.remove("filled", "slot-wrong", "slot-correct", "slot-shuffled");
     }
     function markBubblePlaced(wordIdx, placed) {
       const b = bankEl.querySelector(`[data-index="${wordIdx}"]`);
@@ -272,11 +272,13 @@
     };
   }
 
-  /* Run error-check on a single row: POST its words, then style the slots
-   * (green on match, red on mismatch) and drive the solved group. Returns a
-   * promise resolving to true iff the row is fully correct.
+  /* Run error-check on a single row: POST its words, then style each slot
+   * (green/yellow/red) and drive the solved group. Returns a promise that
+   * resolves to true iff every slot is green.
    *
-   * The server endpoint is expected to return { wrong_slots: [indices] }.
+   * The server endpoint is expected to return
+   *   { green_slots: [indices], yellow_slots: [indices] }.
+   * Slots not in either list render red.
    */
   function checkRowAndStyle({ url, csrfToken, board, solved, comboIdx, onAllCorrect }) {
     const slotWords = board.rowWords(comboIdx);
@@ -288,12 +290,15 @@
     })
       .then(r => r.json())
       .then(data => {
-        const wrongSet = new Set(data.wrong_slots || []);
+        const greenSet = new Set(data.green_slots || []);
+        const yellowSet = new Set(data.yellow_slots || []);
         boxes.forEach((box, j) => {
-          box.classList.remove("slot-wrong", "slot-correct");
-          box.classList.add(wrongSet.has(j) ? "slot-wrong" : "slot-correct");
+          box.classList.remove("slot-wrong", "slot-correct", "slot-shuffled");
+          if (greenSet.has(j)) box.classList.add("slot-correct");
+          else if (yellowSet.has(j)) box.classList.add("slot-shuffled");
+          else box.classList.add("slot-wrong");
         });
-        const correct = wrongSet.size === 0;
+        const correct = greenSet.size === 3;
         if (correct) solved.markSolved(comboIdx);
         else solved.markUnsolved(comboIdx);
         if (onAllCorrect) onAllCorrect(correct, data);

@@ -38,6 +38,8 @@
 
   --color-warn:            #f59e0b;
   --color-warn-2:          #d97706;
+  --color-warn-soft:       #fef3c7;
+  --color-warn-text:       #92400e;
 
   --color-orange:          #f97316;
 
@@ -493,6 +495,13 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
   color: var(--color-text-muted);
   margin-top: 0.15rem;
 }
+.created-line {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
 .puzzle-item { position: relative; }
 .puzzle-list:not(.show-duel) .puzzle-item--duel { display: none; }
 .puzzle-item.is-pinned .puzzle-link {
@@ -758,25 +767,10 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
 }
 .drop-box.filled:active { cursor: grabbing; }
 .drop-box.dragging { opacity: 0.5; }
-.drop-box.slot-wrong {
-  border-color: var(--color-danger);
-  background: var(--color-danger-soft);
-  color: var(--color-danger-text);
-}
-.drop-box.slot-correct {
-  border-color: var(--color-success);
-  background: var(--color-success-soft);
-  color: var(--color-success-text);
-}
-.drop-box.slot-yellow,
-.drop-box.slot-shuffled {
-  box-shadow: 0 0 0 3px var(--color-warn), 0 0 14px rgb(245 158 11 / 0.7);
-  animation: slot-yellow-pulse 1.4s ease-in-out infinite;
-}
-@keyframes slot-yellow-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px var(--color-warn),   0 0 14px rgb(245 158 11 / 0.7); }
-  50%      { box-shadow: 0 0 0 3px var(--color-warn-2), 0 0 22px rgb(245 158 11 / 0.95); }
-}
+.drop-box.slot-correct  { border-color: var(--color-success); background: var(--color-success-soft); color: var(--color-success-text); }
+.drop-box.slot-shuffled,
+.drop-box.slot-yellow   { border-color: var(--color-warn);    background: var(--color-warn-soft);    color: var(--color-warn-text);    }
+.drop-box.slot-wrong    { border-color: var(--color-danger);  background: var(--color-danger-soft);  color: var(--color-danger-text);  }
 .operator { color: var(--color-text-muted); font-size: clamp(1.05rem, 3vw, 1.35rem); }
 
 /* Solved-section collapsible */

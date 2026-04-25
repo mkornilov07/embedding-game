@@ -150,32 +150,55 @@ def _puzzle_word_sums(puzzle):
     return result
 
 
-def _wrong_slots(word_sums, slot_words):
-    """Which slot indices of a 3-word row are wrong against a list of word sums.
+def _check_row(word_sums, slot_words):
+    """Validate a 3-word row and return per-slot color hints.
 
-    Slots are [addend1, addend2, sum]. If two of three match some sum, only the
-    odd one out is returned; otherwise all three are wrong.
+    Returns (green_slots, yellow_slots): lists of slot indices. Slots not in
+    either list render red (wrong). The row is solved iff green_slots covers
+    all three slots.
+
+    Yellow appears when the three words are exactly the word set of some
+    valid word sum but arranged wrong (e.g. A+C=B for a puzzle with A+B=C):
+    all three slots glow yellow, signalling 'right words, wrong order'.
+    Green appears for individually-correct slots in partial matches (e.g.
+    both addends right but the sum is the wrong word).
     """
-    addends = frozenset(slot_words[:2])
-    sum_word = slot_words[2]
+    s0, s1, s2 = slot_words
+    addends = frozenset({s0, s1})
+    sum_word = s2
+
+    # Exact arrangement matches a valid sum: all three green.
     if (addends, sum_word) in word_sums:
-        return []
+        return [0, 1, 2], []
+
+    # Same word set, wrong arrangement: all three yellow.
+    word_set = {s0, s1, s2}
     for ws_addends, ws_sum in word_sums:
+        if word_set == ws_addends | {ws_sum}:
+            return [], [0, 1, 2]
+
+    # Both addends right, sum wrong.
+    for ws_addends, _ in word_sums:
         if addends == ws_addends:
-            return [2]
+            return [0, 1], []
+
+    # Sum right, one addend right.
     for ws_addends, ws_sum in word_sums:
         if sum_word == ws_sum:
             for i in range(2):
                 if slot_words[i] in ws_addends:
-                    return [1 - i]
-    return [0, 1, 2]
+                    return [i, 2], []
+
+    # Nothing matched.
+    return [], []
 
 
 @require_POST
 def check_row(request, pk):
     p = get_object_or_404(Puzzle, pk=pk)
     data = json.loads(request.body)
-    return JsonResponse({"wrong_slots": _wrong_slots(_puzzle_word_sums(p), data["words"])})
+    green, yellow = _check_row(_puzzle_word_sums(p), data["words"])
+    return JsonResponse({"green_slots": green, "yellow_slots": yellow})
 
 
 def register(request):
@@ -516,12 +539,12 @@ def duel_surrender(request, pk):
 @login_required
 @require_POST
 def duel_row_solved(request, pk):
-    """Same contract as check_row (returns wrong_slots) plus duel bookkeeping.
+    """Same contract as check_row (returns green_slots/yellow_slots) plus duel bookkeeping.
 
     If the row is fully correct, records it against the user's DuelProgress,
     broadcasts a progress event, and (if this was the final row) a duel_ended
-    event. The response always includes wrong_slots so the duel UI can render
-    the same slot-level feedback the stand-alone puzzle page gets.
+    event. The response always includes the per-slot color hints so the duel
+    UI can render the same slot-level feedback the stand-alone puzzle page gets.
     """
     duel = get_object_or_404(Duel, pk=pk, status=Duel.STATUS_ACTIVE)
     if request.user.id not in (duel.inviter_id, duel.opponent_id):
@@ -533,13 +556,14 @@ def duel_row_solved(request, pk):
         return JsonResponse({"error": "Invalid row."}, status=400)
 
     word_sums = _puzzle_word_sums(duel.puzzle)
-    wrong = _wrong_slots(word_sums, slot_words)
+    green, yellow = _check_row(word_sums, slot_words)
     total = len(word_sums)
 
-    if wrong:
+    if len(green) != 3:
         progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
         return JsonResponse({
-            "wrong_slots": wrong,
+            "green_slots": green,
+            "yellow_slots": yellow,
             "count": progress.count if progress else 0,
             "total": total,
             "finished": False,
