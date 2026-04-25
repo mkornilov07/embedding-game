@@ -1,5 +1,6 @@
 import json
 import random
+import traceback
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -287,6 +288,11 @@ def generate_combinations(request):
                 return JsonResponse(
                     {"error": f"Model file for {model_name!r} not found. Run build_models.py."},
                     status=400,
+                )
+            except Exception as e:
+                return JsonResponse(
+                    {"error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()},
+                    status=500,
                 )
     else:
         return JsonResponse({"error": f"Unknown type: {gen_type}"}, status=400)

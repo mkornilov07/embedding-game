@@ -391,10 +391,16 @@
           max_synonym_similarity: maxSynonymSimilarity,
         }),
       })
-        .then(r => r.json())
+        .then(async r => {
+          const text = await r.text();
+          try { return JSON.parse(text); }
+          catch { throw new Error(`HTTP ${r.status}: ${text.slice(0, 500)}`); }
+        })
         .then(data => {
           const errorEl = document.getElementById("error");
           if (data.error) {
+            console.error("generate failed:", data.error);
+            if (data.traceback) console.error(data.traceback);
             errorEl.textContent = data.error;
             errorEl.style.display = "block";
             return;
@@ -408,9 +414,10 @@
             }
           }
         })
-        .catch(() => {
+        .catch(err => {
+          console.error("generate failed:", err);
           const errorEl = document.getElementById("error");
-          errorEl.textContent = "Failed to generate.";
+          errorEl.textContent = "Failed to generate. See console for details.";
           errorEl.style.display = "block";
         })
         .finally(() => {
