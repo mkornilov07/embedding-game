@@ -268,7 +268,9 @@
 
     return {
       markSolved, markUnsolved,
-      count: () => listEl.children.length,
+      // Pending rows count too, so the 450ms move delay doesn't briefly read
+      // as "not done yet" when the final row is solved.
+      count: () => pending.size + listEl.children.length,
     };
   }
 
