@@ -15,6 +15,7 @@ urlpatterns = [
     path("create/save/", views.save_puzzle, name="save_puzzle"),
     path("puzzle/<int:pk>/edit/", views.create_puzzle, name="edit_puzzle"),
     path("puzzle/<int:pk>/delete/", views.delete_puzzle, name="delete_puzzle"),
+    path("puzzle/<int:pk>/pin/", views.pin_puzzle, name="pin_puzzle"),
     path("generate/", views.generate_combinations, name="generate_combinations"),
     path("duel/create/", views.create_duel, name="create_duel"),
     path("duel/<int:pk>/cancel/", views.cancel_duel, name="cancel_duel"),

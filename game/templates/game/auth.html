@@ -1,0 +1,47 @@
+{% extends "game/base.html" %}
+
+{% block title %}{% if mode == "register" %}Register{% else %}Log In{% endif %}{% endblock %}
+
+{% block body %}
+<div class="page">
+  <h1>{% if mode == "register" %}Register{% else %}Log In{% endif %}</h1>
+  <div class="card auth-card">
+    {% if form.errors %}
+      <div class="errors">
+        {% if mode == "register" %}
+          <ul>
+            {% for field in form %}{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}{% endfor %}
+            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        {% else %}
+          Invalid username or password.
+        {% endif %}
+      </div>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <label for="id_username">Username</label>
+      <input type="text" name="username" id="id_username" autocomplete="username" autocapitalize="none" autofocus>
+      {% if mode == "register" %}
+        <label for="id_password1">Password</label>
+        <input type="password" name="password1" id="id_password1" autocomplete="new-password">
+        <label for="id_password2">Confirm Password</label>
+        <input type="password" name="password2" id="id_password2" autocomplete="new-password">
+      {% else %}
+        <label for="id_password">Password</label>
+        <input type="password" name="password" id="id_password" autocomplete="current-password">
+      {% endif %}
+      <button type="submit" class="btn btn-primary btn-block auth-submit">
+        {% if mode == "register" %}Register{% else %}Log In{% endif %}
+      </button>
+    </form>
+    <div class="auth-alt">
+      {% if mode == "register" %}
+        Already have an account? <a href="{% url 'login' %}">Log In</a>
+      {% else %}
+        Don't have an account? <a href="{% url 'register' %}">Register</a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

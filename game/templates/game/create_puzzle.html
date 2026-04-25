@@ -1,195 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% if puzzle %}Edit{% else %}Create{% endif %} Puzzle</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f4f8;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 2rem;
-      color: #1a202c;
-    }
-    h1 { font-size: 1.8rem; margin-bottom: 2rem; }
-    .form-area {
-      width: 100%;
-      max-width: 500px;
-      display: flex;
-      flex-direction: column;
-      gap: 1.5rem;
-    }
-    label { font-weight: 500; margin-bottom: 0.25rem; display: block; }
-    input[type="text"] {
-      width: 100%;
-      padding: 0.5rem;
-      border: 1px solid #cbd5e0;
-      border-radius: 0.25rem;
-      font-size: 1rem;
-    }
-    .word-sum-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .word-sum-row input { flex: 1; }
-    .word-sum-row .op {
-      font-weight: 600;
-      color: #718096;
-      font-size: 1.2rem;
-    }
-    .word-sum-row .remove-btn {
-      background: none;
-      border: none;
-      color: #e53e3e;
-      font-size: 1.3rem;
-      cursor: pointer;
-      padding: 0 0.3rem;
-    }
-    .word-sum-row .remove-btn:hover { color: #c53030; }
-    .word-sum-item {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-    .word-sum-metrics {
-      font-size: 0.75rem;
-      color: #718096;
-      padding-left: 0.25rem;
-      font-variant-numeric: tabular-nums;
-    }
-    .word-sums-list:not(.show-metrics) .word-sum-metrics { display: none; }
-    .word-sums-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .btn {
-      padding: 0.6rem 1.2rem;
-      border: none;
-      border-radius: 0.25rem;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .btn-add {
-      background: #edf2f7;
-      color: #4a5568;
-    }
-    .btn-add:hover { background: #e2e8f0; }
-    .btn-generate {
-      background: #ebf8ff;
-      color: #4299e1;
-    }
-    .btn-generate:hover { background: #bee3f8; }
-    .btn-generate:disabled { background: #edf2f7; color: #a0aec0; cursor: default; }
-    .btn-clear {
-      background: #fff5f5;
-      color: #e53e3e;
-    }
-    .btn-clear:hover { background: #fee2e2; }
-    .btn-row {
-      display: flex;
-      gap: 0.75rem;
-      margin-top: 0.75rem;
-      flex-wrap: wrap;
-    }
-    .gen-panel {
-      margin-top: 1rem;
-      padding: 1rem;
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 0.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .gen-panel h3 {
-      font-size: 1rem;
-      color: #4a5568;
-      margin: 0;
-    }
-    .gen-field {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-    .gen-field label {
-      white-space: nowrap;
-      min-width: 80px;
-      font-size: 0.9rem;
-      margin: 0;
-    }
-    .gen-field select, .gen-field input[type="number"] {
-      padding: 0.4rem;
-      border: 1px solid #cbd5e0;
-      border-radius: 0.25rem;
-      font-size: 0.9rem;
-      flex: 1;
-    }
-    .gen-field input[type="range"] { flex: 1; }
-    .gen-field .range-value {
-      font-variant-numeric: tabular-nums;
-      min-width: 2ch;
-      text-align: right;
-      color: #4a5568;
-      font-size: 0.9rem;
-    }
-    .gen-field input[type="checkbox"] {
-      width: 1rem;
-      height: 1rem;
-    }
-    .gen-field label[title] { cursor: help; border-bottom: 1px dotted #a0aec0; }
-    .advanced-panel {
-      border-top: 1px solid #e2e8f0;
-      padding-top: 0.75rem;
-    }
-    .advanced-panel summary {
-      cursor: pointer;
-      font-size: 0.9rem;
-      color: #4a5568;
-      padding: 0.25rem 0;
-      user-select: none;
-      list-style: none;
-      font-weight: 500;
-    }
-    .advanced-panel summary::-webkit-details-marker { display: none; }
-    .advanced-panel summary::before {
-      content: "\25B8";
-      display: inline-block;
-      margin-right: 0.4rem;
-      transition: transform 0.15s;
-    }
-    .advanced-panel[open] summary::before {
-      transform: rotate(90deg);
-    }
-    .advanced-fields {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      margin-top: 0.75rem;
-    }
-    .btn-save {
-      background: #4299e1;
-      color: #fff;
-      width: 100%;
-      padding: 0.75rem;
-    }
-    .btn-save:hover { background: #3182ce; }
-    .btn-save:disabled { background: #a0aec0; cursor: default; }
-    .error { color: #e53e3e; font-size: 0.9rem; }
-    .back { margin-bottom: 1rem; align-self: flex-start; }
-    .back a { color: #4299e1; text-decoration: none; }
-    .back a:hover { text-decoration: underline; }
-  </style>
-</head>
-<body>
-  <div class="back"><a href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
+{% extends "game/base.html" %}
+
+{% block title %}{% if puzzle %}Edit{% else %}Create{% endif %} Puzzle{% endblock %}
+
+{% block body %}
+<div class="page">
+  <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
   <h1>{% if puzzle %}Edit{% else %}Create{% endif %} Puzzle</h1>
 
   <div class="form-area" id="form-area">
@@ -202,8 +17,8 @@
       <label>Word Sums</label>
       <div class="word-sums-list" id="word-sums-list"></div>
       <div class="btn-row">
-        <button class="btn btn-add" onclick="addWordSum()">+ Add Word Sum</button>
-        <button class="btn btn-clear" onclick="clearAll()">Clear All</button>
+        <button class="btn btn-secondary" onclick="addWordSum()">+ Add Word Sum</button>
+        <button class="btn btn-danger" onclick="clearAll()">Clear All</button>
       </div>
       <div class="gen-panel">
         <h3>Generate</h3>
@@ -218,7 +33,7 @@
         </div>
         <div class="gen-field">
           <label for="gen-count" title="How many word sums to generate in this batch (max 5).">Count</label>
-          <input type="number" id="gen-count" value="5" min="1" max="5">
+          <input type="number" id="gen-count" value="5" min="1" max="5" inputmode="numeric">
         </div>
         <details class="advanced-panel" id="advanced-panel">
           <summary>Advanced options</summary>
@@ -241,7 +56,7 @@
             </div>
             <div class="gen-field" id="top-n-vocab-field">
               <label for="top-n-vocab" title="Restrict seed vocabulary to the top-N most frequent tokens. KeyedVectors are sorted by frequency; capping avoids long-tail morphological junk and rare-word noise. Set to 0 for no cap.">Vocab top-N</label>
-              <input type="number" id="top-n-vocab" value="3000" min="0" step="1000">
+              <input type="number" id="top-n-vocab" value="3000" min="0" step="1000" inputmode="numeric">
             </div>
             <div class="gen-field" id="refine-iters-field">
               <label for="refine-iters" title="Number of substitution passes that tighten each triple (C−B → A, C−A → B, A+B → C). Higher = more refined triples but slower and more can fail the synonym check.">Refine iters</label>
@@ -250,239 +65,241 @@
             </div>
             <div class="gen-field" id="min-sim-field">
               <label for="min-sim" title="Lower bound on the raw top-candidate similarity during sampling. Triples whose best candidate scores below this are rejected before refinement. Cosmul and cosadd use different scales; defaults auto-swap when the 3CosMul toggle changes.">Min similarity</label>
-              <input type="number" id="min-sim" value="0.6" min="0" max="2" step="0.01">
+              <input type="number" id="min-sim" value="0.6" min="0" max="2" step="0.01" inputmode="decimal">
             </div>
             <div class="gen-field" id="min-refined-sim-field">
               <label for="min-refined-sim" title="Final quality gate: the best A+B=C arrangement must score at least this after refinement. Higher = cleaner sums, fewer results.">Min refined sim.</label>
-              <input type="number" id="min-refined-sim" value="0.6" min="0" max="2" step="0.01">
+              <input type="number" id="min-refined-sim" value="0.6" min="0" max="2" step="0.01" inputmode="decimal">
             </div>
             <div class="gen-field" id="min-gap-ratio-field">
               <label for="min-gap-ratio" title="The top candidate's similarity must exceed the runner-up's by this factor. Rejects ambiguous triples where two different sum-words are almost equally good.">Min gap ratio</label>
-              <input type="number" id="min-gap-ratio" value="1" min="1" max="2" step="0.01">
+              <input type="number" id="min-gap-ratio" value="1" min="1" max="2" step="0.01" inputmode="decimal">
             </div>
             <div class="gen-field" id="max-syn-sim-field">
               <label for="max-syn-sim" title="Reject triples where any pair of words has cosine similarity above this. Prevents near-synonyms like (car, automobile, vehicle) which are trivial sums.">Max synonym sim.</label>
-              <input type="number" id="max-syn-sim" value="0.53" min="0" max="1" step="0.01">
+              <input type="number" id="max-syn-sim" value="0.53" min="0" max="1" step="0.01" inputmode="decimal">
             </div>
           </div>
         </details>
-        <button class="btn btn-generate" id="generate-btn" onclick="generateWordSums()">Generate Word Sums</button>
+        <button class="btn btn-ghost" id="generate-btn" onclick="generateWordSums()">Generate Word Sums</button>
       </div>
     </div>
 
     <div class="error" id="error" style="display:none"></div>
-    <button class="btn btn-save" id="save-btn" onclick="savePuzzle()">{% if puzzle %}Save Changes{% else %}Save Puzzle{% endif %}</button>
+    <button class="btn btn-primary btn-block" id="save-btn" onclick="savePuzzle()">{% if puzzle %}Save Changes{% else %}Save Puzzle{% endif %}</button>
   </div>
+</div>
+{% endblock %}
 
-  <script>
-    const csrfToken = "{{ csrf_token }}";
-    const saveUrl = "{% url 'save_puzzle' %}";
-    const generateUrl = "{% url 'generate_combinations' %}";
-    const puzzleId = {% if puzzle %}{{ puzzle.pk }}{% else %}null{% endif %};
-    const initialWordSums = {{ word_sums_json|default:"[]"|safe }};
-    const list = document.getElementById("word-sums-list");
-    const modelSelect = document.getElementById("model-select");
-    const advancedPanel = document.getElementById("advanced-panel");
-    const genBtn = document.getElementById("generate-btn");
-    const showSimCb = document.getElementById("show-sim");
-    showSimCb.addEventListener("change", () => {
-      list.classList.toggle("show-metrics", showSimCb.checked);
-    });
-    let rowCount = 0;
+{% block scripts %}
+<script>
+  const csrfToken = "{{ csrf_token }}";
+  const saveUrl = "{% url 'save_puzzle' %}";
+  const generateUrl = "{% url 'generate_combinations' %}";
+  const puzzleId = {% if puzzle %}{{ puzzle.pk }}{% else %}null{% endif %};
+  const initialWordSums = {{ word_sums_json|default:"[]"|safe }};
+  const list = document.getElementById("word-sums-list");
+  const modelSelect = document.getElementById("model-select");
+  const advancedPanel = document.getElementById("advanced-panel");
+  const genBtn = document.getElementById("generate-btn");
+  const showSimCb = document.getElementById("show-sim");
+  showSimCb.addEventListener("change", () => {
+    list.classList.toggle("show-metrics", showSimCb.checked);
+  });
+  let rowCount = 0;
 
-    function updateGenUI() {
-      const isCurated = modelSelect.value === "curated";
-      advancedPanel.style.display = isCurated ? "none" : "block";
-      genBtn.textContent = isCurated ? "Sample Word Sums" : "Generate Word Sums";
+  function updateGenUI() {
+    const isCurated = modelSelect.value === "curated";
+    advancedPanel.style.display = isCurated ? "none" : "block";
+    genBtn.textContent = isCurated ? "Sample Word Sums" : "Generate Word Sums";
+  }
+  modelSelect.addEventListener("change", updateGenUI);
+  updateGenUI();
+
+  const refineIters = document.getElementById("refine-iters");
+  const refineItersVal = document.getElementById("refine-iters-val");
+  refineIters.addEventListener("input", () => {
+    refineItersVal.textContent = refineIters.value;
+  });
+
+  // Auto-swap similarity-threshold defaults when 3CosMul toggles.
+  // Only swap when the value still matches the other mode's default,
+  // so manual edits aren't clobbered.
+  const cosmulCb = document.getElementById("cosmul");
+  const minSimInput = document.getElementById("min-sim");
+  const minRefinedSimInput = document.getElementById("min-refined-sim");
+  const COSADD_DEFAULTS = { minSim: 0.6, minRefinedSim: 0.6 };
+  const COSMUL_DEFAULTS = { minSim: 0.25, minRefinedSim: 0.5 };
+  cosmulCb.addEventListener("change", () => {
+    const from = cosmulCb.checked ? COSADD_DEFAULTS : COSMUL_DEFAULTS;
+    const to = cosmulCb.checked ? COSMUL_DEFAULTS : COSADD_DEFAULTS;
+    if (parseFloat(minSimInput.value) === from.minSim) {
+      minSimInput.value = to.minSim;
     }
-    modelSelect.addEventListener("change", updateGenUI);
-    updateGenUI();
-
-    const refineIters = document.getElementById("refine-iters");
-    const refineItersVal = document.getElementById("refine-iters-val");
-    refineIters.addEventListener("input", () => {
-      refineItersVal.textContent = refineIters.value;
-    });
-
-    // Auto-swap similarity-threshold defaults when 3CosMul toggles.
-    // Only swap when the value still matches the other mode's default,
-    // so manual edits aren't clobbered.
-    const cosmulCb = document.getElementById("cosmul");
-    const minSimInput = document.getElementById("min-sim");
-    const minRefinedSimInput = document.getElementById("min-refined-sim");
-    const COSADD_DEFAULTS = { minSim: 0.6, minRefinedSim: 0.6 };
-    const COSMUL_DEFAULTS = { minSim: 0.25, minRefinedSim: 0.5 };
-    cosmulCb.addEventListener("change", () => {
-      const from = cosmulCb.checked ? COSADD_DEFAULTS : COSMUL_DEFAULTS;
-      const to = cosmulCb.checked ? COSMUL_DEFAULTS : COSADD_DEFAULTS;
-      if (parseFloat(minSimInput.value) === from.minSim) {
-        minSimInput.value = to.minSim;
-      }
-      if (parseFloat(minRefinedSimInput.value) === from.minRefinedSim) {
-        minRefinedSimInput.value = to.minRefinedSim;
-      }
-    });
-
-    function addWordSum(addend1, addend2, sumWord, metrics) {
-      const item = document.createElement("div");
-      item.className = "word-sum-item";
-      const metricsHtml = metrics
-        ? `<div class="word-sum-metrics" title="Cosine similarity of the two addends (left) and cosine similarity between the sum_word and the vector sum of the two addends (right).">addend sim: ${metrics.addendSim.toFixed(3)} · sum sim: ${metrics.sumSim.toFixed(3)}</div>`
-        : "";
-      item.innerHTML = `
-        <div class="word-sum-row">
-          <input type="text" placeholder="word 1" data-field="addend1" value="${addend1 || ''}">
-          <span class="op">+</span>
-          <input type="text" placeholder="word 2" data-field="addend2" value="${addend2 || ''}">
-          <span class="op">=</span>
-          <input type="text" placeholder="result" data-field="sum_word" value="${sumWord || ''}">
-          <button class="remove-btn" onclick="this.closest('.word-sum-item').remove()">&times;</button>
-        </div>
-        ${metricsHtml}
-      `;
-      list.appendChild(item);
-      if (!addend1) item.querySelector("input").focus();
-      rowCount++;
+    if (parseFloat(minRefinedSimInput.value) === from.minRefinedSim) {
+      minRefinedSimInput.value = to.minRefinedSim;
     }
+  });
 
-    // Prefill existing rows when editing, otherwise start with one empty row.
-    if (initialWordSums.length > 0) {
-      for (const ws of initialWordSums) {
-        addWordSum(ws.addend1, ws.addend2, ws.sum_word);
-      }
-    } else {
-      addWordSum();
+  function addWordSum(addend1, addend2, sumWord, metrics) {
+    const item = document.createElement("div");
+    item.className = "word-sum-item";
+    const metricsHtml = metrics
+      ? `<div class="word-sum-metrics" title="Cosine similarity of the two addends (left) and cosine similarity between the sum_word and the vector sum of the two addends (right).">addend sim: ${metrics.addendSim.toFixed(3)} · sum sim: ${metrics.sumSim.toFixed(3)}</div>`
+      : "";
+    item.innerHTML = `
+      <div class="word-sum-row">
+        <input type="text" placeholder="word 1" data-field="addend1" value="${addend1 || ''}" autocapitalize="none" autocomplete="off">
+        <span class="op">+</span>
+        <input type="text" placeholder="word 2" data-field="addend2" value="${addend2 || ''}" autocapitalize="none" autocomplete="off">
+        <span class="op">=</span>
+        <input type="text" placeholder="result" data-field="sum_word" value="${sumWord || ''}" autocapitalize="none" autocomplete="off">
+        <button class="remove-btn" onclick="this.closest('.word-sum-item').remove()">&times;</button>
+      </div>
+      ${metricsHtml}
+    `;
+    list.appendChild(item);
+    if (!addend1) item.querySelector("input").focus();
+    rowCount++;
+  }
+
+  // Prefill existing rows when editing, otherwise start with one empty row.
+  if (initialWordSums.length > 0) {
+    for (const ws of initialWordSums) {
+      addWordSum(ws.addend1, ws.addend2, ws.sum_word);
     }
+  } else {
+    addWordSum();
+  }
 
-    function clearAll() {
-      list.innerHTML = "";
-    }
+  function clearAll() {
+    list.innerHTML = "";
+  }
 
-    function generateWordSums() {
-      const btn = document.getElementById("generate-btn");
-      const model = document.getElementById("model-select").value;
-      const count = parseInt(document.getElementById("gen-count").value) || 5;
-      const relatedPairs = document.getElementById("related-pairs").checked;
-      const cosmul = document.getElementById("cosmul").checked;
-      const abtt = document.getElementById("abtt").checked;
-      const topNVocab = parseInt(document.getElementById("top-n-vocab").value) || 0;
-      const refineIterations = parseInt(refineIters.value);
-      const minSimilarity = parseFloat(minSimInput.value);
-      const minRefinedSimilarity = parseFloat(minRefinedSimInput.value);
-      const minGapRatio = parseFloat(document.getElementById("min-gap-ratio").value);
-      const maxSynonymSimilarity = parseFloat(document.getElementById("max-syn-sim").value);
-      btn.disabled = true;
-      btn.textContent = modelSelect.value === "curated" ? "Sampling..." : "Generating...";
+  function generateWordSums() {
+    const btn = document.getElementById("generate-btn");
+    const model = document.getElementById("model-select").value;
+    const count = parseInt(document.getElementById("gen-count").value) || 5;
+    const relatedPairs = document.getElementById("related-pairs").checked;
+    const cosmul = document.getElementById("cosmul").checked;
+    const abtt = document.getElementById("abtt").checked;
+    const topNVocab = parseInt(document.getElementById("top-n-vocab").value) || 0;
+    const refineIterations = parseInt(refineIters.value);
+    const minSimilarity = parseFloat(minSimInput.value);
+    const minRefinedSimilarity = parseFloat(minRefinedSimInput.value);
+    const minGapRatio = parseFloat(document.getElementById("min-gap-ratio").value);
+    const maxSynonymSimilarity = parseFloat(document.getElementById("max-syn-sim").value);
+    btn.disabled = true;
+    btn.textContent = modelSelect.value === "curated" ? "Sampling..." : "Generating...";
 
-      fetch(generateUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfToken,
-        },
-        body: JSON.stringify({
-          type: "word_sum", count, model,
-          related_pairs: relatedPairs,
-          cosmul, abtt, top_n_vocab: topNVocab,
-          refine_iterations: refineIterations,
-          min_similarity: minSimilarity,
-          min_refined_similarity: minRefinedSimilarity,
-          min_gap_ratio: minGapRatio,
-          max_synonym_similarity: maxSynonymSimilarity,
-        }),
+    fetch(generateUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken,
+      },
+      body: JSON.stringify({
+        type: "word_sum", count, model,
+        related_pairs: relatedPairs,
+        cosmul, abtt, top_n_vocab: topNVocab,
+        refine_iterations: refineIterations,
+        min_similarity: minSimilarity,
+        min_refined_similarity: minRefinedSimilarity,
+        min_gap_ratio: minGapRatio,
+        max_synonym_similarity: maxSynonymSimilarity,
+      }),
+    })
+      .then(async r => {
+        const text = await r.text();
+        try { return JSON.parse(text); }
+        catch { throw new Error(`HTTP ${r.status}: ${text.slice(0, 500)}`); }
       })
-        .then(async r => {
-          const text = await r.text();
-          try { return JSON.parse(text); }
-          catch { throw new Error(`HTTP ${r.status}: ${text.slice(0, 500)}`); }
-        })
-        .then(data => {
-          const errorEl = document.getElementById("error");
-          if (data.error) {
-            console.error("generate failed:", data.error);
-            if (data.traceback) console.error(data.traceback);
-            errorEl.textContent = data.error;
-            errorEl.style.display = "block";
-            return;
-          }
-          if (data.combinations) {
-            for (const combo of data.combinations) {
-              const metrics = combo.addend_similarity !== undefined
-                ? { addendSim: combo.addend_similarity, sumSim: combo.sum_similarity }
-                : null;
-              addWordSum(combo.addend1, combo.addend2, combo.sum_word, metrics);
-            }
-          }
-        })
-        .catch(err => {
-          console.error("generate failed:", err);
-          const errorEl = document.getElementById("error");
-          errorEl.textContent = "Failed to generate. See console for details.";
-          errorEl.style.display = "block";
-        })
-        .finally(() => {
-          btn.disabled = false;
-          updateGenUI();
-        });
-    }
-
-    function savePuzzle() {
-      const name = document.getElementById("puzzle-name").value.trim();
-      const rows = list.querySelectorAll(".word-sum-row");
-      const errorEl = document.getElementById("error");
-      errorEl.style.display = "none";
-
-      const wordSums = [];
-      for (const row of rows) {
-        const addend1 = row.querySelector("[data-field='addend1']").value.trim();
-        const addend2 = row.querySelector("[data-field='addend2']").value.trim();
-        const sumWord = row.querySelector("[data-field='sum_word']").value.trim();
-        if (!addend1 || !addend2 || !sumWord) {
-          errorEl.textContent = "Fill in all fields for each word sum.";
+      .then(data => {
+        const errorEl = document.getElementById("error");
+        if (data.error) {
+          console.error("generate failed:", data.error);
+          if (data.traceback) console.error(data.traceback);
+          errorEl.textContent = data.error;
           errorEl.style.display = "block";
           return;
         }
-        wordSums.push({ addend1, addend2, sum_word: sumWord });
-      }
-
-      if (!name) {
-        errorEl.textContent = "Enter a puzzle name.";
-        errorEl.style.display = "block";
-        return;
-      }
-      if (wordSums.length === 0) {
-        errorEl.textContent = "Add at least one word sum.";
-        errorEl.style.display = "block";
-        return;
-      }
-
-      const btn = document.getElementById("save-btn");
-      btn.disabled = true;
-
-      fetch(saveUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfToken,
-        },
-        body: JSON.stringify({ id: puzzleId, name, word_sums: wordSums }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.id) {
-            window.location.href = `/puzzle/${data.id}/`;
-          } else {
-            errorEl.textContent = data.error || "Something went wrong.";
-            errorEl.style.display = "block";
-            btn.disabled = false;
+        if (data.combinations) {
+          for (const combo of data.combinations) {
+            const metrics = combo.addend_similarity !== undefined
+              ? { addendSim: combo.addend_similarity, sumSim: combo.sum_similarity }
+              : null;
+            addWordSum(combo.addend1, combo.addend2, combo.sum_word, metrics);
           }
-        })
-        .catch(() => {
-          errorEl.textContent = "Something went wrong.";
+        }
+      })
+      .catch(err => {
+        console.error("generate failed:", err);
+        const errorEl = document.getElementById("error");
+        errorEl.textContent = "Failed to generate. See console for details.";
+        errorEl.style.display = "block";
+      })
+      .finally(() => {
+        btn.disabled = false;
+        updateGenUI();
+      });
+  }
+
+  function savePuzzle() {
+    const name = document.getElementById("puzzle-name").value.trim();
+    const rows = list.querySelectorAll(".word-sum-row");
+    const errorEl = document.getElementById("error");
+    errorEl.style.display = "none";
+
+    const wordSums = [];
+    for (const row of rows) {
+      const addend1 = row.querySelector("[data-field='addend1']").value.trim();
+      const addend2 = row.querySelector("[data-field='addend2']").value.trim();
+      const sumWord = row.querySelector("[data-field='sum_word']").value.trim();
+      if (!addend1 || !addend2 || !sumWord) {
+        errorEl.textContent = "Fill in all fields for each word sum.";
+        errorEl.style.display = "block";
+        return;
+      }
+      wordSums.push({ addend1, addend2, sum_word: sumWord });
+    }
+
+    if (!name) {
+      errorEl.textContent = "Enter a puzzle name.";
+      errorEl.style.display = "block";
+      return;
+    }
+    if (wordSums.length === 0) {
+      errorEl.textContent = "Add at least one word sum.";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    const btn = document.getElementById("save-btn");
+    btn.disabled = true;
+
+    fetch(saveUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken,
+      },
+      body: JSON.stringify({ id: puzzleId, name, word_sums: wordSums }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.id) {
+          window.location.href = `/puzzle/${data.id}/`;
+        } else {
+          errorEl.textContent = data.error || "Something went wrong.";
           errorEl.style.display = "block";
           btn.disabled = false;
-        });
-    }
-  </script>
-</body>
-</html>
+        }
+      })
+      .catch(() => {
+        errorEl.textContent = "Something went wrong.";
+        errorEl.style.display = "block";
+        btn.disabled = false;
+      });
+  }
+</script>
+{% endblock %}

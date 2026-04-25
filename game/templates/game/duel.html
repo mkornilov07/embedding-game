@@ -1,299 +1,156 @@
-{% load static %}<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Duel: {{ puzzle.name }}</title>
-  <link rel="stylesheet" href="{% static 'game/board.css' %}">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f4f8;
-      min-height: 100vh;
-      color: #1a202c;
-    }
-    .layout {
-      display: grid;
-      grid-template-columns: 1fr 260px;
-      gap: 2rem;
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 2rem;
-      align-items: start;
-    }
-    .main {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-width: 0;
-    }
-    h1 { font-size: 1.6rem; margin-bottom: 0.25rem; text-align: center; }
-    .subtitle { color: #718096; font-size: 0.95rem; margin-bottom: 1.5rem; }
+{% extends "game/base.html" %}
+{% load static %}
 
-    .word-bank {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.6rem;
-      justify-content: center;
-      max-width: 680px;
-      margin-bottom: 2rem;
-    }
-    .word-bubble { font-size: 1.05rem; padding: 0.45rem 1.1rem; }
+{% block title %}Duel: {{ puzzle.name }}{% endblock %}
 
-    .equations {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      width: 100%;
-      max-width: 560px;
-    }
-    .equation { font-size: 1.2rem; }
-    .drop-box { width: 120px; height: 44px; font-size: 1rem; }
-    .operator { font-size: 1.3rem; }
+{% block body %}
+<div class="layout">
+  <div class="main">
+    <div class="duel-back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; Home</a></div>
+    <h1>{{ puzzle.name }}</h1>
+    <div class="subtitle">Duel vs <strong>{{ opponent.username }}</strong></div>
 
-    /* Sidebar */
-    .sidebar {
-      background: #fff;
-      border-radius: 0.75rem;
-      padding: 1.25rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      position: sticky;
-      top: 2rem;
-    }
-    .sidebar h2 {
-      font-size: 0.75rem;
-      font-weight: 700;
-      color: #718096;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-bottom: 1rem;
-    }
-    .player {
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-      margin-bottom: 1.25rem;
-    }
-    .player:last-child { margin-bottom: 0; }
-    .player-name {
-      font-weight: 600;
-      font-size: 0.95rem;
-      color: #2d3748;
-    }
-    .player-name.me { color: #4299e1; }
-    .player-count {
-      font-size: 0.85rem;
-      color: #4a5568;
-      font-variant-numeric: tabular-nums;
-    }
-    .bar {
-      width: 100%;
-      height: 10px;
-      background: #edf2f7;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .bar-fill {
-      height: 100%;
-      background: #4299e1;
-      transition: width 0.4s cubic-bezier(0.2, 0.8, 0.3, 1);
-      border-radius: 5px;
-    }
-    .player.opponent .bar-fill { background: #ed8936; }
-
-    .surrender-btn {
-      margin-top: 1.25rem;
-      width: 100%;
-      background: #fff5f5;
-      color: #e53e3e;
-      border: 1px solid #fed7d7;
-      border-radius: 0.35rem;
-      padding: 0.55rem;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: inherit;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    .surrender-btn:hover { background: #fee2e2; border-color: #feb2b2; }
-    .surrender-btn:disabled { opacity: 0.55; cursor: default; }
-
-    /* Page-specific overlay variants; .overlay base + fireworks come from board.css */
-    .overlay { flex-direction: column; gap: 1rem; }
-    .overlay-win { background: rgba(16, 185, 129, 0.9); }
-    .overlay-lose { background: rgba(71, 85, 105, 0.92); }
-    .overlay .icon { font-size: 5rem; color: #fff; }
-    .overlay .message { font-size: 2.2rem; font-weight: 700; color: #fff; }
-    .overlay .sub { font-size: 1.05rem; color: #e2e8f0; }
-    .overlay .back-btn {
-      margin-top: 0.75rem;
-      padding: 0.7rem 1.6rem;
-      background: #fff;
-      color: #2d3748;
-      border: none;
-      border-radius: 0.5rem;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-    }
-    .back-link { color: #4299e1; text-decoration: none; font-size: 0.9rem; }
-    .back-link:hover { text-decoration: underline; }
-
-    @media (max-width: 820px) {
-      .layout { grid-template-columns: 1fr; }
-      .sidebar { position: static; }
-    }
-  </style>
-</head>
-<body>
-  <div class="layout">
-    <div class="main">
-      <div style="align-self:flex-start;margin-bottom:0.5rem"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; Home</a></div>
-      <h1>{{ puzzle.name }}</h1>
-      <div class="subtitle">Duel vs <strong>{{ opponent.username }}</strong></div>
-
-      <div class="word-bank" id="word-bank"></div>
-      <div class="equations" id="equations">
-        <div class="solved-section collapsed" id="solved-section" hidden>
-          <button type="button" class="solved-header" id="solved-toggle" aria-expanded="false">
-            <span id="solved-count"></span>
-            <span class="solved-chevron">&#x25BE;</span>
-          </button>
-          <div class="solved-list-wrapper">
-            <div class="solved-list" id="solved-list"></div>
-          </div>
+    <div class="word-bank" id="word-bank"></div>
+    <div class="equations" id="equations">
+      <div class="solved-section collapsed" id="solved-section" hidden>
+        <button type="button" class="solved-header" id="solved-toggle" aria-expanded="false">
+          <span id="solved-count"></span>
+          <span class="solved-chevron">&#x25BE;</span>
+        </button>
+        <div class="solved-list-wrapper">
+          <div class="solved-list" id="solved-list"></div>
         </div>
       </div>
     </div>
-
-    <aside class="sidebar">
-      <h2>Progress</h2>
-      <div class="player me">
-        <div class="player-name me">You</div>
-        <div class="player-count"><span id="my-count">{{ my_count }}</span> / {{ total }} solved</div>
-        <div class="bar"><div class="bar-fill" id="my-bar" style="width:0%"></div></div>
-      </div>
-      <div class="player opponent">
-        <div class="player-name">{{ opponent.username }}</div>
-        <div class="player-count"><span id="opp-count">{{ opp_count }}</span> / {{ total }} solved</div>
-        <div class="bar"><div class="bar-fill" id="opp-bar" style="width:0%"></div></div>
-      </div>
-      {% if duel.status == "active" %}
-        <button type="button" class="surrender-btn" id="surrender-btn">Surrender</button>
-      {% endif %}
-    </aside>
   </div>
 
-  <div class="overlay overlay-win" id="overlay-win">
-    <div class="icon">&#x2713;</div>
-    <div class="message">You won!</div>
-    <a class="back-btn" href="{% url 'puzzle_list' %}">Home</a>
-    <div class="fireworks" id="fireworks"></div>
-  </div>
+  <aside class="sidebar">
+    <h2>Progress</h2>
+    <div class="player me">
+      <div class="player-name me">You</div>
+      <div class="player-count"><span id="my-count">{{ my_count }}</span> / {{ total }} solved</div>
+      <div class="bar"><div class="bar-fill" id="my-bar" style="width:0%"></div></div>
+    </div>
+    <div class="player opponent">
+      <div class="player-name">{{ opponent.username }}</div>
+      <div class="player-count"><span id="opp-count">{{ opp_count }}</span> / {{ total }} solved</div>
+      <div class="bar"><div class="bar-fill" id="opp-bar" style="width:0%"></div></div>
+    </div>
+    {% if duel.status == "active" %}
+      <button type="button" class="surrender-btn" id="surrender-btn">Surrender</button>
+    {% endif %}
+  </aside>
+</div>
 
-  <div class="overlay overlay-lose" id="overlay-lose">
-    <div class="icon">&#x2717;</div>
-    <div class="message">You lost</div>
-    <div class="sub" id="lose-sub"></div>
-    <a class="back-btn" href="{% url 'puzzle_list' %}">Home</a>
-  </div>
+<div class="overlay overlay-win" id="overlay-win">
+  <div class="icon">&#x2713;</div>
+  <div class="message">You won!</div>
+  <a class="back-btn" href="{% url 'puzzle_list' %}">Home</a>
+  <div class="fireworks" id="fireworks"></div>
+</div>
 
-  <script src="{% static 'game/board.js' %}"></script>
-  <script>
-    const duelId = {{ duel.pk }};
-    const myUserId = {{ request.user.id }};
-    const total = {{ total }};
-    const words = {{ words_json|safe }};
-    const combinations = {{ combinations_json|safe }};
-    const rowSolvedUrl = "{% url 'duel_row_solved' duel.pk %}";
-    const csrfToken = "{{ csrf_token }}";
-    const alreadyFinished = {% if winner_username %}true{% else %}false{% endif %};
-    const preWinner = "{{ winner_username|escapejs }}";
-    const myUsername = "{{ request.user.username|escapejs }}";
+<div class="overlay overlay-lose" id="overlay-lose">
+  <div class="icon">&#x2717;</div>
+  <div class="message">You lost</div>
+  <div class="sub" id="lose-sub"></div>
+  <a class="back-btn" href="{% url 'puzzle_list' %}">Home</a>
+</div>
+{% endblock %}
 
-    const myCountEl = document.getElementById("my-count");
-    const oppCountEl = document.getElementById("opp-count");
-    const myBar = document.getElementById("my-bar");
-    const oppBar = document.getElementById("opp-bar");
+{% block scripts %}
+<script src="{% static 'game/board.js' %}"></script>
+<script>
+  const duelId = {{ duel.pk }};
+  const myUserId = {{ request.user.id }};
+  const total = {{ total }};
+  const words = {{ words_json|safe }};
+  const combinations = {{ combinations_json|safe }};
+  const rowSolvedUrl = "{% url 'duel_row_solved' duel.pk %}";
+  const csrfToken = "{{ csrf_token }}";
+  const alreadyFinished = {% if winner_username %}true{% else %}false{% endif %};
+  const preWinner = "{{ winner_username|escapejs }}";
+  const myUsername = "{{ request.user.username|escapejs }}";
 
-    function updateBar(bar, count) {
-      bar.style.width = total > 0 ? `${(count / total) * 100}%` : "0%";
+  const myCountEl = document.getElementById("my-count");
+  const oppCountEl = document.getElementById("opp-count");
+  const myBar = document.getElementById("my-bar");
+  const oppBar = document.getElementById("opp-bar");
+
+  function updateBar(bar, count) {
+    bar.style.width = total > 0 ? `${(count / total) * 100}%` : "0%";
+  }
+  updateBar(myBar, parseInt(myCountEl.textContent) || 0);
+  updateBar(oppBar, parseInt(oppCountEl.textContent) || 0);
+
+  const eqContainer = document.getElementById("equations");
+  const solved = createSolvedGroup({
+    sectionEl: document.getElementById("solved-section"),
+    listEl: document.getElementById("solved-list"),
+    countEl: document.getElementById("solved-count"),
+    toggleEl: document.getElementById("solved-toggle"),
+    boardEl: eqContainer,
+  });
+  const board = createBoard({
+    bankEl: document.getElementById("word-bank"),
+    boardEl: eqContainer,
+    words, combinations,
+    onRowChanged: handleRowChange,
+  });
+
+  function handleRowChange(comboIdx) {
+    // Clear stale styling + solved state for this row.
+    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
+    solved.markUnsolved(comboIdx);
+
+    if (!board.isRowFilled(comboIdx)) {
+      updateAllFilledHint({ board, solved, expected: total });
+      return;
     }
-    updateBar(myBar, parseInt(myCountEl.textContent) || 0);
-    updateBar(oppBar, parseInt(oppCountEl.textContent) || 0);
+    checkRowAndStyle({ url: rowSolvedUrl, csrfToken, board, solved, comboIdx })
+      .then(() => updateAllFilledHint({ board, solved, expected: total }));
+  }
 
-    const eqContainer = document.getElementById("equations");
-    const solved = createSolvedGroup({
-      sectionEl: document.getElementById("solved-section"),
-      listEl: document.getElementById("solved-list"),
-      countEl: document.getElementById("solved-count"),
-      toggleEl: document.getElementById("solved-toggle"),
-      boardEl: eqContainer,
-    });
-    const board = createBoard({
-      bankEl: document.getElementById("word-bank"),
-      boardEl: eqContainer,
-      words, combinations,
-      onRowChanged: handleRowChange,
-    });
-
-    function handleRowChange(comboIdx) {
-      // Clear stale styling + solved state for this row.
-      board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
-      solved.markUnsolved(comboIdx);
-
-      if (!board.isRowFilled(comboIdx)) {
-        updateAllFilledHint({ board, solved, expected: total });
-        return;
-      }
-      checkRowAndStyle({ url: rowSolvedUrl, csrfToken, board, solved, comboIdx })
-        .then(() => updateAllFilledHint({ board, solved, expected: total }));
-    }
-
-    const surrenderBtn = document.getElementById("surrender-btn");
-    if (surrenderBtn) {
-      surrenderBtn.addEventListener("click", async () => {
-        if (!confirm("Surrender this duel? Your opponent will win.")) return;
-        surrenderBtn.disabled = true;
-        await fetch(`/duel/${duelId}/surrender/`, {
-          method: "POST",
-          headers: {"X-CSRFToken": csrfToken, "Content-Type": "application/json"},
-          body: "{}",
-        });
+  const surrenderBtn = document.getElementById("surrender-btn");
+  if (surrenderBtn) {
+    surrenderBtn.addEventListener("click", async () => {
+      if (!confirm("Surrender this duel? Your opponent will win.")) return;
+      surrenderBtn.disabled = true;
+      await fetch(`/duel/${duelId}/surrender/`, {
+        method: "POST",
+        headers: {"X-CSRFToken": csrfToken, "Content-Type": "application/json"},
+        body: "{}",
       });
-    }
+    });
+  }
 
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/duel/${duelId}/`);
-    ws.onmessage = ev => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === "progress") {
-        if (msg.user_id === myUserId) {
-          myCountEl.textContent = msg.count;
-          updateBar(myBar, msg.count);
-        } else {
-          oppCountEl.textContent = msg.count;
-          updateBar(oppBar, msg.count);
-        }
-      } else if (msg.type === "duel_ended") {
-        showEnd(msg.winner_id === myUserId, msg.winner_username);
-      }
-    };
-
-    function showEnd(won, winnerName) {
-      if (won) {
-        document.getElementById("overlay-win").classList.add("show");
-        launchFireworks("fireworks");
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws/duel/${duelId}/`);
+  ws.onmessage = ev => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "progress") {
+      if (msg.user_id === myUserId) {
+        myCountEl.textContent = msg.count;
+        updateBar(myBar, msg.count);
       } else {
-        document.getElementById("lose-sub").textContent = `${winnerName} finished first.`;
-        document.getElementById("overlay-lose").classList.add("show");
+        oppCountEl.textContent = msg.count;
+        updateBar(oppBar, msg.count);
       }
+    } else if (msg.type === "duel_ended") {
+      showEnd(msg.winner_id === myUserId, msg.winner_username);
     }
+  };
 
-    // If the page was loaded after the duel already ended, show the result immediately.
-    if (alreadyFinished) showEnd(preWinner === myUsername, preWinner);
-  </script>
-</body>
-</html>
+  function showEnd(won, winnerName) {
+    if (won) {
+      document.getElementById("overlay-win").classList.add("show");
+      launchFireworks("fireworks");
+    } else {
+      document.getElementById("lose-sub").textContent = `${winnerName} finished first.`;
+      document.getElementById("overlay-lose").classList.add("show");
+    }
+  }
+
+  // If the page was loaded after the duel already ended, show the result immediately.
+  if (alreadyFinished) showEnd(preWinner === myUsername, preWinner);
+</script>
+{% endblock %}

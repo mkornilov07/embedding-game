@@ -38,7 +38,7 @@ MIN_REFINED_SIMILARITY_COSADD = 0.60
 MIN_SIMILARITY_COSMUL = 0.25
 MIN_REFINED_SIMILARITY_COSMUL = 0.5
 MIN_GAP_RATIO = 1.0
-MAX_SYNONYM_SIMILARITY = 0.53
+MAX_SYNONYM_SIMILARITY = 0.45
 MAX_ATTEMPTS_PER_RESULT = 1000
 REFINE_ITERATIONS = 1
 DEFAULT_TOP_N_VOCAB = 3000
@@ -141,8 +141,8 @@ def _best_arrangement(words, similar):
     return best_addends, best_sum, best_sim
 
 
-def generate_word_sums(count=5, model_name=None, related_pairs=False,
-                        cosmul=True, abtt=False, top_n_vocab=DEFAULT_TOP_N_VOCAB,
+def generate_word_sums(count=5, model_name=None, related_pairs=True,
+                        cosmul=True, abtt=True, top_n_vocab=DEFAULT_TOP_N_VOCAB,
                         refine_iterations=REFINE_ITERATIONS,
                         min_similarity=None,
                         min_refined_similarity=None,

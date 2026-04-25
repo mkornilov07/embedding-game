@@ -1,290 +1,28 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Puzzles</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f4f8;
-      min-height: 100vh;
-      color: #1a202c;
-    }
-    .page {
-      position: relative;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 2rem;
-    }
-    h1 { font-size: 1.8rem; margin-bottom: 1.25rem; }
-    .puzzle-list {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      width: 100%;
-      max-width: 400px;
-    }
-    .puzzle-link {
-      display: block;
-      padding: 1rem 1.5rem;
-      background: #fff;
-      border-radius: 0.5rem;
-      text-decoration: none;
-      color: #2d3748;
-      font-size: 1.2rem;
-      font-weight: 500;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      transition: box-shadow 0.15s, transform 0.1s;
-    }
-    .puzzle-link:hover {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      transform: translateY(-1px);
-    }
-    .empty { color: #718096; font-size: 1.05rem; }
-    .nav {
-      position: absolute;
-      top: 1rem;
-      right: 1.5rem;
-      font-size: 0.95rem;
-    }
-    .nav a { color: #4299e1; text-decoration: none; margin-left: 1rem; }
-    .nav a:hover { text-decoration: underline; }
-    .nav span { color: #718096; }
-    .nav form { display: inline; margin-left: 1rem; }
-    .nav button {
-      background: none; border: none; color: #4299e1;
-      font-size: inherit; cursor: pointer; padding: 0;
-    }
-    .nav button:hover { text-decoration: underline; }
-    .check { color: #10b981; margin-right: 0.5rem; font-weight: 700; }
-    .author {
-      display: block; font-size: 0.85rem; font-weight: 400;
-      color: #718096; margin-top: 0.15rem;
-    }
-    .puzzle-item { position: relative; }
-    .puzzle-list:not(.show-duel) .puzzle-item--duel { display: none; }
+{% extends "game/base.html" %}
 
-    .duel-filter {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.75rem;
-      font-size: 0.9rem;
-      color: #4a5568;
-      align-self: flex-start;
-      max-width: 400px;
-      width: 100%;
-      padding-left: 0.25rem;
-    }
-    .duel-filter input { width: 1rem; height: 1rem; }
-    .owner-actions {
-      position: absolute; top: 0.75rem; right: 0.75rem;
-      display: flex; gap: 0.1rem;
-    }
-    .icon-btn {
-      background: none; border: none; color: #a0aec0;
-      font-size: 1rem; cursor: pointer;
-      padding: 0.2rem 0.4rem; border-radius: 0.25rem;
-      line-height: 1; text-decoration: none;
-    }
-    .edit-btn:hover { color: #4299e1; background: #ebf8ff; }
-    .delete-btn { font-size: 1.1rem; }
-    .delete-btn:hover { color: #e53e3e; background: #fee2e2; }
+{% block title %}Puzzles{% endblock %}
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      gap: 0.25rem;
-      margin-bottom: 1.5rem;
-      background: #e2e8f0;
-      padding: 0.25rem;
-      border-radius: 9999px;
-    }
-    .tab {
-      background: transparent;
-      border: none;
-      padding: 0.5rem 1.5rem;
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: #4a5568;
-      cursor: pointer;
-      border-radius: 9999px;
-      font-family: inherit;
-      transition: background 0.15s, color 0.15s;
-    }
-    .tab.active { background: #fff; color: #2d3748; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-    .tab:not(.active):hover { color: #2d3748; }
-
-    .tab-panel { width: 100%; max-width: 400px; display: none; }
-    .tab-panel.active { display: block; }
-
-    /* Duels panel */
-    .card {
-      background: #fff;
-      border-radius: 0.75rem;
-      padding: 1.25rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      margin-bottom: 1rem;
-    }
-    .card h3 {
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: #718096;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      margin-bottom: 0.85rem;
-    }
-    .field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; }
-    .field label { font-size: 0.9rem; color: #4a5568; }
-    .field input[type="text"], .field select {
-      padding: 0.5rem; border: 1px solid #cbd5e0; border-radius: 0.3rem;
-      font-size: 0.95rem; font-family: inherit;
-    }
-    .field-row { display: flex; align-items: center; gap: 0.5rem; }
-    .btn {
-      padding: 0.55rem 1.2rem; border: none; border-radius: 0.3rem;
-      font-size: 0.95rem; font-weight: 600; cursor: pointer; font-family: inherit;
-    }
-    .btn-primary { background: #4299e1; color: #fff; }
-    .btn-primary:hover { background: #3182ce; }
-    .btn-primary:disabled { background: #a0aec0; cursor: default; }
-    .btn-secondary { background: #edf2f7; color: #4a5568; }
-    .btn-secondary:hover { background: #e2e8f0; }
-    .btn-danger { background: #fff5f5; color: #e53e3e; }
-    .btn-danger:hover { background: #fee2e2; }
-    .btn-success { background: #d1fae5; color: #065f46; }
-    .btn-success:hover { background: #a7f3d0; }
-
-    .error { color: #e53e3e; font-size: 0.9rem; margin-top: 0.5rem; }
-
-    .recent-opponents {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.35rem;
-      margin-top: 0.5rem;
-    }
-    .recent-label { font-size: 0.8rem; color: #718096; }
-    .recent-chip {
-      background: #edf2f7;
-      color: #2d3748;
-      border: none;
-      border-radius: 9999px;
-      padding: 0.25rem 0.7rem;
-      font-size: 0.82rem;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
-    }
-    .recent-chip:hover { background: #e2e8f0; }
-    .recent-chip:active { transform: scale(0.96); }
-
-    .gen-toggle {
-      display: flex; align-items: center; gap: 0.5rem;
-      margin: 0.5rem 0 0.75rem;
-      font-size: 0.9rem; color: #4a5568;
-    }
-
-    .pulse { animation: pulse 1.4s infinite; }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.55; }
-    }
-
-    /* Top invite banner (Clash Royale-style) */
-    .invite-banner {
-      width: 100%;
-      background: linear-gradient(90deg, #4299e1, #38b2ac);
-      color: #fff;
-      max-height: 200px;
-      overflow: hidden;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-      transition: max-height 0.4s cubic-bezier(0.2, 0.8, 0.3, 1),
-                  box-shadow 0.3s ease;
-    }
-    .invite-banner[data-mode="outgoing"] {
-      background: linear-gradient(90deg, #ed8936, #d69e2e);
-    }
-    .invite-banner--hidden {
-      max-height: 0;
-      box-shadow: none;
-    }
-    .invite-banner-inner {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 0.9rem 1.25rem;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-    .invite-banner-text {
-      flex: 1;
-      min-width: 0;
-      font-size: 1rem;
-      line-height: 1.3;
-    }
-    .invite-banner-text strong { font-weight: 700; }
-    .invite-banner-text .sub {
-      display: block;
-      font-size: 0.85rem;
-      opacity: 0.9;
-      margin-top: 0.15rem;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .invite-banner[data-mode="outgoing"] .invite-banner-text {
-      animation: pulse 1.6s ease-in-out infinite;
-    }
-    .invite-banner-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
-    .invite-banner-actions button {
-      padding: 0.5rem 1.1rem;
-      border: none;
-      border-radius: 0.35rem;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: inherit;
-      transition: background 0.15s, transform 0.1s;
-    }
-    .invite-banner-actions button:active { transform: scale(0.96); }
-    .banner-accept { background: #fff; color: #2d3748; }
-    .banner-accept:hover { background: #f0f4f8; }
-    .banner-decline, .banner-withdraw {
-      background: rgba(255,255,255,0.15);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,0.4);
-    }
-    .banner-decline:hover, .banner-withdraw:hover { background: rgba(255,255,255,0.25); }
-    .invite-banner[data-mode="incoming"] .out-actions { display: none; }
-    .invite-banner[data-mode="outgoing"] .in-actions { display: none; }
-  </style>
-</head>
-<body>
-  <div id="invite-banner"
-       class="invite-banner{% if not incoming_invites and not outgoing_invite %} invite-banner--hidden{% endif %}"
-       data-mode="{% if outgoing_invite %}outgoing{% elif incoming_invites %}incoming{% endif %}"
-       data-duel-id="{% if outgoing_invite %}{{ outgoing_invite.pk }}{% elif incoming_invites %}{{ incoming_invites.0.pk }}{% endif %}">
-    <div class="invite-banner-inner">
-      <div class="invite-banner-text">
-        <span><strong id="banner-user">{% if outgoing_invite %}{{ outgoing_invite.opponent.username }}{% elif incoming_invites %}{{ incoming_invites.0.inviter.username }}{% endif %}</strong> <span id="banner-verb">{% if outgoing_invite %}hasn't responded yet&hellip;{% else %}challenged you to a duel{% endif %}</span></span>
-        <span class="sub" id="banner-puzzle">{% if outgoing_invite %}{{ outgoing_invite.puzzle.name }}{% elif incoming_invites %}{{ incoming_invites.0.puzzle.name }}{% endif %}</span>
-      </div>
-      <div class="invite-banner-actions in-actions">
-        <button type="button" class="banner-accept" id="banner-accept">Accept</button>
-        <button type="button" class="banner-decline" id="banner-decline">Decline</button>
-      </div>
-      <div class="invite-banner-actions out-actions">
-        <button type="button" class="banner-withdraw" id="banner-withdraw">Withdraw</button>
-      </div>
+{% block body %}
+<div id="invite-banner"
+     class="invite-banner{% if not incoming_invites and not outgoing_invite %} invite-banner--hidden{% endif %}"
+     data-mode="{% if outgoing_invite %}outgoing{% elif incoming_invites %}incoming{% endif %}"
+     data-duel-id="{% if outgoing_invite %}{{ outgoing_invite.pk }}{% elif incoming_invites %}{{ incoming_invites.0.pk }}{% endif %}">
+  <div class="invite-banner-inner">
+    <div class="invite-banner-text">
+      <span><strong id="banner-user">{% if outgoing_invite %}{{ outgoing_invite.opponent.username }}{% elif incoming_invites %}{{ incoming_invites.0.inviter.username }}{% endif %}</strong> <span id="banner-verb">{% if outgoing_invite %}hasn't responded yet&hellip;{% else %}challenged you to a duel{% endif %}</span></span>
+      <span class="sub" id="banner-puzzle">{% if outgoing_invite %}{{ outgoing_invite.puzzle.name }}{% elif incoming_invites %}{{ incoming_invites.0.puzzle.name }}{% endif %}</span>
+    </div>
+    <div class="invite-banner-actions in-actions">
+      <button type="button" class="banner-accept" id="banner-accept">Accept</button>
+      <button type="button" class="banner-decline" id="banner-decline">Decline</button>
+    </div>
+    <div class="invite-banner-actions out-actions">
+      <button type="button" class="banner-withdraw" id="banner-withdraw">Withdraw</button>
     </div>
   </div>
+</div>
 
-  <div class="page">
+<div class="page">
   <div class="nav">
     {% if user.is_authenticated %}
       <span>{{ user.username }}</span>
@@ -305,7 +43,7 @@
 
   <div class="tab-panel active" id="panel-puzzles">
     {% if user.is_authenticated %}
-      <a class="puzzle-link" href="{% url 'create_puzzle' %}" style="text-align:center;margin-bottom:1rem;background:#ebf8ff;color:#4299e1;">+ Create Puzzle</a>
+      <a class="puzzle-link is-create" href="{% url 'create_puzzle' %}">+ Create Puzzle</a>
     {% endif %}
     {% if has_duel_puzzles %}
       <label class="duel-filter">
@@ -315,14 +53,17 @@
     {% endif %}
     <div class="puzzle-list" id="puzzle-list">
       {% for p in puzzles %}
-        <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% endif %}">
+        <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% endif %}{% if p.pinned %} is-pinned{% endif %}" data-puzzle-id="{{ p.pk }}">
           <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
             {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
             {{ p.name }}
-            {% if p.created_by %}<span class="author">by {{ p.created_by.username }}</span>{% endif %}
+            {% if p.created_by %}<span class="author-line">by {{ p.created_by.username }}</span>{% endif %}
           </a>
-          {% if p.created_by == user %}
+          {% if p.created_by == user or user.is_staff %}
             <div class="owner-actions">
+              {% if user.is_staff %}
+                <button class="icon-btn pin-btn{% if p.pinned %} pinned{% endif %}" onclick="togglePin({{ p.pk }})" title="{% if p.pinned %}Unpin{% else %}Pin to top{% endif %}">&#128204;</button>
+              {% endif %}
               <a class="icon-btn edit-btn" href="{% url 'edit_puzzle' p.pk %}" title="Edit">&#9998;</a>
               <button class="icon-btn delete-btn" onclick="deletePuzzle({{ p.pk }}, '{{ p.name|escapejs }}')" title="Delete">&times;</button>
             </div>
@@ -339,12 +80,12 @@
     {% if active_duel %}
       <div class="card">
         <h3>Active Duel</h3>
-        <p style="margin-bottom:0.75rem;color:#4a5568;font-size:0.95rem;">
+        <p class="active-duel-text">
           You're in a duel with
           <strong>{% if active_duel.inviter == user %}{{ active_duel.opponent.username }}{% else %}{{ active_duel.inviter.username }}{% endif %}</strong>
           on <em>{{ active_duel.puzzle.name }}</em>.
         </p>
-        <a class="btn btn-primary" href="{% url 'duel_detail' active_duel.pk %}" style="text-decoration:none;display:inline-block;">Resume duel</a>
+        <a class="btn btn-primary" href="{% url 'duel_detail' active_duel.pk %}">Resume duel</a>
       </div>
     {% endif %}
 
@@ -353,7 +94,7 @@
         <h3>Challenge someone</h3>
         <div class="field">
           <label for="opp-username">Opponent username</label>
-          <input type="text" id="opp-username" placeholder="username">
+          <input type="text" id="opp-username" placeholder="username" autocapitalize="none" autocomplete="off">
           {% if recent_opponents %}
             <div class="recent-opponents">
               <span class="recent-label">Recent:</span>
@@ -390,7 +131,7 @@
 
         <div class="field" id="count-field" style="display:none">
           <label for="gen-count">Combinations</label>
-          <input type="number" id="gen-count" value="5" min="1" max="10">
+          <input type="number" id="gen-count" value="5" min="1" max="10" inputmode="numeric">
         </div>
 
         <button class="btn btn-primary" id="send-invite-btn" onclick="sendInvite()">Send invite</button>
@@ -399,182 +140,195 @@
     {% endif %}
   </div>
   {% endif %}
-  </div>
+</div>
+{% endblock %}
 
-  <script>
-    const csrfToken = "{{ csrf_token }}";
-    const isAuthed = {% if user.is_authenticated %}true{% else %}false{% endif %};
+{% block scripts %}
+<script>
+  const csrfToken = "{{ csrf_token }}";
+  const isAuthed = {% if user.is_authenticated %}true{% else %}false{% endif %};
 
-    function deletePuzzle(id, name) {
-      if (!confirm(`Delete "${name}"?`)) return;
-      fetch(`/puzzle/${id}/delete/`, {
-        method: "POST",
-        headers: { "X-CSRFToken": csrfToken },
-      }).then(r => r.json()).then(data => {
-        if (data.ok) location.reload();
-      });
-    }
-
-    // Duel-puzzle visibility toggle
-    const duelToggle = document.getElementById("show-duel-toggle");
-    const puzzleList = document.getElementById("puzzle-list");
-    if (duelToggle && puzzleList) {
-      duelToggle.addEventListener("change", () => {
-        puzzleList.classList.toggle("show-duel", duelToggle.checked);
-      });
-    }
-
-    // Tab switching
-    const tabs = document.querySelectorAll(".tab");
-    function activateTab(name) {
-      tabs.forEach(x => x.classList.toggle("active", x.dataset.tab === name));
-      document.querySelectorAll(".tab-panel").forEach(p => {
-        p.classList.toggle("active", p.id === `panel-${name}`);
-      });
-    }
-    tabs.forEach(t => t.addEventListener("click", () => activateTab(t.dataset.tab)));
-
-    if (isAuthed) {
-      const genToggle = document.getElementById("generate-toggle");
-      const existingField = document.getElementById("existing-puzzle-field");
-      const modelField = document.getElementById("model-field");
-      const countField = document.getElementById("count-field");
-      if (genToggle) {
-        genToggle.addEventListener("change", () => {
-          const gen = genToggle.checked;
-          existingField.style.display = gen ? "none" : "";
-          modelField.style.display = gen ? "" : "none";
-          countField.style.display = gen ? "" : "none";
-        });
+  function deletePuzzle(id, name) {
+    if (!confirm(`Delete "${name}"?`)) return;
+    fetch(`/puzzle/${id}/delete/`, {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken },
+    }).then(r => r.json()).then(data => {
+      if (data.ok) {
+        document.querySelector(`.puzzle-item[data-puzzle-id="${id}"]`)?.remove();
       }
+    });
+  }
 
-      // Clickable "recent opponents" chips prefill the username field.
-      document.querySelectorAll(".recent-chip").forEach(chip => {
-        chip.addEventListener("click", () => {
-          const input = document.getElementById("opp-username");
-          if (!input) return;
-          input.value = chip.dataset.username;
-          input.focus();
-        });
+  async function togglePin(id) {
+    const r = await fetch(`/puzzle/${id}/pin/`, {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken },
+    });
+    if (!r.ok) return;
+    // Pinning reorders the list, so reload to keep order consistent.
+    location.reload();
+  }
+
+  // Duel-puzzle visibility toggle
+  const duelToggle = document.getElementById("show-duel-toggle");
+  const puzzleList = document.getElementById("puzzle-list");
+  if (duelToggle && puzzleList) {
+    duelToggle.addEventListener("change", () => {
+      puzzleList.classList.toggle("show-duel", duelToggle.checked);
+    });
+  }
+
+  // Tab switching
+  const tabs = document.querySelectorAll(".tab");
+  function activateTab(name) {
+    tabs.forEach(x => x.classList.toggle("active", x.dataset.tab === name));
+    document.querySelectorAll(".tab-panel").forEach(p => {
+      p.classList.toggle("active", p.id === `panel-${name}`);
+    });
+  }
+  tabs.forEach(t => t.addEventListener("click", () => activateTab(t.dataset.tab)));
+
+  if (isAuthed) {
+    const genToggle = document.getElementById("generate-toggle");
+    const existingField = document.getElementById("existing-puzzle-field");
+    const modelField = document.getElementById("model-field");
+    const countField = document.getElementById("count-field");
+    if (genToggle) {
+      genToggle.addEventListener("change", () => {
+        const gen = genToggle.checked;
+        existingField.style.display = gen ? "none" : "";
+        modelField.style.display = gen ? "" : "none";
+        countField.style.display = gen ? "" : "none";
       });
-
-      // Handle ?duel=<pk> — jump to the Duels tab with that puzzle preselected.
-      const duelParam = new URLSearchParams(location.search).get("duel");
-      if (duelParam) {
-        activateTab("duels");
-        const sel = document.getElementById("puzzle-select");
-        if (sel && sel.querySelector(`option[value="${duelParam}"]`)) {
-          sel.value = duelParam;
-        }
-        const nameInput = document.getElementById("opp-username");
-        if (nameInput) nameInput.focus();
-      }
     }
 
-    async function postJson(url, body) {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
-        body: JSON.stringify(body || {}),
+    // Clickable "recent opponents" chips prefill the username field.
+    document.querySelectorAll(".recent-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const input = document.getElementById("opp-username");
+        if (!input) return;
+        input.value = chip.dataset.username;
+        input.focus();
       });
-      return { status: r.status, data: await r.json().catch(() => ({})) };
-    }
+    });
 
-    async function sendInvite() {
-      const btn = document.getElementById("send-invite-btn");
-      const err = document.getElementById("invite-error");
-      err.style.display = "none";
-      const opponent = document.getElementById("opp-username").value.trim();
-      if (!opponent) { err.textContent = "Enter a username."; err.style.display = "block"; return; }
-      const generate = document.getElementById("generate-toggle").checked;
-      const body = { opponent };
-      if (generate) {
-        body.generate = true;
-        body.model = document.getElementById("model-select").value;
-        body.count = parseInt(document.getElementById("gen-count").value) || 5;
-      } else {
-        const sel = document.getElementById("puzzle-select");
-        if (!sel.value) { err.textContent = "Pick a puzzle."; err.style.display = "block"; return; }
-        body.puzzle_id = parseInt(sel.value);
+    // Handle ?duel=<pk> — jump to the Duels tab with that puzzle preselected.
+    const duelParam = new URLSearchParams(location.search).get("duel");
+    if (duelParam) {
+      activateTab("duels");
+      const sel = document.getElementById("puzzle-select");
+      if (sel && sel.querySelector(`option[value="${duelParam}"]`)) {
+        sel.value = duelParam;
       }
-      btn.disabled = true;
-      btn.textContent = generate ? "Generating..." : "Sending...";
-      const { status, data } = await postJson("{% url 'create_duel' %}", body);
-      btn.disabled = false;
-      btn.textContent = "Send invite";
-      if (status >= 400) {
-        err.textContent = data.error || "Failed to send invite.";
-        err.style.display = "block";
-        return;
-      }
+      const nameInput = document.getElementById("opp-username");
+      if (nameInput) nameInput.focus();
+    }
+  }
+
+  async function postJson(url, body) {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+      body: JSON.stringify(body || {}),
+    });
+    return { status: r.status, data: await r.json().catch(() => ({})) };
+  }
+
+  async function sendInvite() {
+    const btn = document.getElementById("send-invite-btn");
+    const err = document.getElementById("invite-error");
+    err.style.display = "none";
+    const opponent = document.getElementById("opp-username").value.trim();
+    if (!opponent) { err.textContent = "Enter a username."; err.style.display = "block"; return; }
+    const generate = document.getElementById("generate-toggle").checked;
+    const body = { opponent };
+    if (generate) {
+      body.generate = true;
+      body.model = document.getElementById("model-select").value;
+      body.count = parseInt(document.getElementById("gen-count").value) || 5;
+    } else {
+      const sel = document.getElementById("puzzle-select");
+      if (!sel.value) { err.textContent = "Pick a puzzle."; err.style.display = "block"; return; }
+      body.puzzle_id = parseInt(sel.value);
+    }
+    btn.disabled = true;
+    btn.textContent = generate ? "Generating..." : "Sending...";
+    const { status, data } = await postJson("{% url 'create_duel' %}", body);
+    btn.disabled = false;
+    btn.textContent = "Send invite";
+    if (status >= 400) {
+      err.textContent = data.error || "Failed to send invite.";
+      err.style.display = "block";
+      return;
+    }
+    location.reload();
+  }
+
+  // Banner — one element, two modes: "incoming" (accept/decline) and "outgoing" (withdraw).
+  const banner = document.getElementById("invite-banner");
+  const bannerUser = document.getElementById("banner-user");
+  const bannerVerb = document.getElementById("banner-verb");
+  const bannerPuzzle = document.getElementById("banner-puzzle");
+
+  function showBanner(mode, duel) {
+    banner.dataset.mode = mode;
+    banner.dataset.duelId = duel.id;
+    bannerUser.textContent = mode === "outgoing" ? duel.opponent : duel.inviter;
+    bannerVerb.innerHTML = mode === "outgoing" ? "hasn't responded yet&hellip;" : "challenged you to a duel";
+    bannerPuzzle.textContent = duel.puzzle_name;
+    banner.classList.remove("invite-banner--hidden");
+  }
+  function hideBanner() {
+    banner.classList.add("invite-banner--hidden");
+    banner.dataset.duelId = "";
+    banner.dataset.mode = "";
+  }
+
+  if (banner) {
+    document.getElementById("banner-accept").addEventListener("click", async () => {
+      const id = banner.dataset.duelId;
+      if (!id) return;
+      const { status, data } = await postJson(`/duel/${id}/accept/`, {});
+      if (status >= 400) { alert(data.error || "Failed to accept."); return; }
+      window.location.href = data.url;
+    });
+    document.getElementById("banner-decline").addEventListener("click", async () => {
+      const id = banner.dataset.duelId;
+      if (!id) return;
+      hideBanner();
+      await postJson(`/duel/${id}/decline/`, {});
+    });
+    document.getElementById("banner-withdraw").addEventListener("click", async () => {
+      const id = banner.dataset.duelId;
+      if (!id) return;
+      hideBanner();
+      await postJson(`/duel/${id}/cancel/`, {});
+      // Reload so the "Challenge someone" form comes back.
       location.reload();
-    }
+    });
+  }
 
-    // Banner — one element, two modes: "incoming" (accept/decline) and "outgoing" (withdraw).
-    const banner = document.getElementById("invite-banner");
-    const bannerUser = document.getElementById("banner-user");
-    const bannerVerb = document.getElementById("banner-verb");
-    const bannerPuzzle = document.getElementById("banner-puzzle");
-
-    function showBanner(mode, duel) {
-      banner.dataset.mode = mode;
-      banner.dataset.duelId = duel.id;
-      bannerUser.textContent = mode === "outgoing" ? duel.opponent : duel.inviter;
-      bannerVerb.innerHTML = mode === "outgoing" ? "hasn't responded yet&hellip;" : "challenged you to a duel";
-      bannerPuzzle.textContent = duel.puzzle_name;
-      banner.classList.remove("invite-banner--hidden");
-    }
-    function hideBanner() {
-      banner.classList.add("invite-banner--hidden");
-      banner.dataset.duelId = "";
-      banner.dataset.mode = "";
-    }
-
-    if (banner) {
-      document.getElementById("banner-accept").addEventListener("click", async () => {
-        const id = banner.dataset.duelId;
-        if (!id) return;
-        const { status, data } = await postJson(`/duel/${id}/accept/`, {});
-        if (status >= 400) { alert(data.error || "Failed to accept."); return; }
-        window.location.href = data.url;
-      });
-      document.getElementById("banner-decline").addEventListener("click", async () => {
-        const id = banner.dataset.duelId;
-        if (!id) return;
+  // Lobby WebSocket for live invite events
+  if (isAuthed) {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/ws/lobby/`);
+    ws.onmessage = ev => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "invite_received") {
+        showBanner("incoming", msg.duel);
+      } else if (msg.type === "invite_cancelled") {
+        // Inviter withdrew: slide the banner away.
         hideBanner();
-        await postJson(`/duel/${id}/decline/`, {});
-      });
-      document.getElementById("banner-withdraw").addEventListener("click", async () => {
-        const id = banner.dataset.duelId;
-        if (!id) return;
+      } else if (msg.type === "invite_accepted") {
+        window.location.href = msg.url;
+      } else if (msg.type === "invite_declined") {
+        // Opponent declined our invite — hide the banner and refresh to
+        // bring the challenge form back.
         hideBanner();
-        await postJson(`/duel/${id}/cancel/`, {});
-        // Reload so the "Challenge someone" form comes back.
-        location.reload();
-      });
-    }
-
-    // Lobby WebSocket for live invite events
-    if (isAuthed) {
-      const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${proto}//${location.host}/ws/lobby/`);
-      ws.onmessage = ev => {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "invite_received") {
-          showBanner("incoming", msg.duel);
-        } else if (msg.type === "invite_cancelled") {
-          // Inviter withdrew: slide the banner away.
-          hideBanner();
-        } else if (msg.type === "invite_accepted") {
-          window.location.href = msg.url;
-        } else if (msg.type === "invite_declined") {
-          // Opponent declined our invite — hide the banner and refresh to
-          // bring the challenge form back.
-          hideBanner();
-          setTimeout(() => location.reload(), 400);
-        }
-      };
-    }
-  </script>
-</body>
-</html>
+        setTimeout(() => location.reload(), 400);
+      }
+    };
+  }
+</script>
+{% endblock %}

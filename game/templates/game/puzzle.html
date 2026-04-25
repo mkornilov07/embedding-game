@@ -1,173 +1,11 @@
-{% load static %}<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ puzzle.name }}</title>
-  <link rel="stylesheet" href="{% static 'game/board.css' %}">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+{% extends "game/base.html" %}
+{% load static %}
 
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f4f8;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 2rem;
-      color: #1a202c;
-    }
+{% block title %}{{ puzzle.name }}{% endblock %}
 
-    h1 {
-      font-size: 1.8rem;
-      margin-bottom: 2rem;
-    }
-
-    .word-bank { gap: 0.75rem; margin-bottom: 2.5rem; }
-    .word-bubble { font-size: 1.1rem; padding: 0.5rem 1.2rem; }
-
-    .equations {
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-      width: 100%;
-      max-width: 600px;
-    }
-    .equation { font-size: 1.3rem; }
-
-    .drop-box { width: 130px; height: 48px; font-size: 1.1rem; }
-    .operator { font-size: 1.4rem; }
-
-    /* Page-specific overlay variants; base + fireworks live in board.css. */
-    .overlay-wrong { background: rgba(220, 38, 38, 0.85); }
-
-    .overlay-wrong .icon {
-      font-size: 12rem;
-      color: #fff;
-      animation: shake 0.5s ease;
-    }
-
-    @keyframes shake {
-      0%, 100% { transform: translateX(0); }
-      20%, 60% { transform: translateX(-15px); }
-      40%, 80% { transform: translateX(15px); }
-    }
-
-    /* Correct overlay */
-    .overlay-correct {
-      background: rgba(16, 185, 129, 0.85);
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    .overlay-correct .icon {
-      font-size: 6rem;
-      color: #fff;
-    }
-
-    .overlay-correct .message {
-      font-size: 2.5rem;
-      font-weight: 700;
-      color: #fff;
-    }
-
-    .back-btn {
-      margin-top: 1.5rem;
-      padding: 0.75rem 2rem;
-      background: #fff;
-      color: #10b981;
-      border: none;
-      border-radius: 0.5rem;
-      font-size: 1.1rem;
-      font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-      transition: transform 0.1s;
-    }
-
-    .back-btn:hover {
-      transform: scale(1.05);
-    }
-
-    .back { margin-bottom: 1rem; }
-    .back a { color: #4299e1; text-decoration: none; }
-    .back a:hover { text-decoration: underline; }
-
-    .author {
-      color: #718096;
-      font-size: 0.95rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .duel-btn {
-      display: inline-block;
-      margin-bottom: 1rem;
-      padding: 0.4rem 1rem;
-      background: #ebf8ff;
-      color: #4299e1;
-      border-radius: 9999px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-decoration: none;
-      transition: background 0.15s, transform 0.1s;
-    }
-    .duel-btn:hover { background: #bee3f8; }
-    .duel-btn:active { transform: scale(0.97); }
-
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 1.5rem;
-      font-size: 0.95rem;
-      color: #4a5568;
-    }
-
-    .toggle {
-      position: relative;
-      width: 40px;
-      height: 22px;
-    }
-
-    .toggle input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .toggle-slider {
-      position: absolute;
-      inset: 0;
-      background: #cbd5e0;
-      border-radius: 11px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .toggle-slider::before {
-      content: "";
-      position: absolute;
-      width: 16px;
-      height: 16px;
-      left: 3px;
-      top: 3px;
-      background: #fff;
-      border-radius: 50%;
-      transition: transform 0.2s;
-    }
-
-    .toggle input:checked + .toggle-slider {
-      background: #4299e1;
-    }
-
-    .toggle input:checked + .toggle-slider::before {
-      transform: translateX(18px);
-    }
-  </style>
-</head>
-<body>
-  <div class="back"><a href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
+{% block body %}
+<div class="page">
+  <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
   <h1>{{ puzzle.name }}</h1>
   {% if puzzle.created_by %}<div class="author">by {{ puzzle.created_by.username }}</div>{% endif %}
   {% if user.is_authenticated %}
@@ -195,112 +33,114 @@
       </div>
     </div>
   </div>
+</div>
 
-  <div class="overlay overlay-wrong" id="overlay-wrong" onclick="dismissOverlay()">
-    <div class="icon">&#x2717;</div>
-  </div>
+<div class="overlay overlay-wrong" id="overlay-wrong" onclick="dismissOverlay()">
+  <div class="icon">&#x2717;</div>
+</div>
 
-  <div class="overlay overlay-correct" id="overlay-correct">
-    <div class="icon">&#x2713;</div>
-    <div class="message">Nice!</div>
-    <a class="back-btn" href="{% url 'puzzle_list' %}">All Puzzles</a>
-    <div class="fireworks" id="fireworks"></div>
-  </div>
+<div class="overlay overlay-correct" id="overlay-correct">
+  <div class="icon">&#x2713;</div>
+  <div class="message">Nice!</div>
+  <a class="back-btn" href="{% url 'puzzle_list' %}">All Puzzles</a>
+  <div class="fireworks" id="fireworks"></div>
+</div>
+{% endblock %}
 
-  <script src="{% static 'game/board.js' %}"></script>
-  <script>
-    const words = {{ words_json|safe }};
-    const combinations = {{ combinations_json|safe }};
-    const checkUrl = "{% url 'check_puzzle' puzzle.pk %}";
-    const checkRowUrl = "{% url 'check_row' puzzle.pk %}";
-    const csrfToken = "{{ csrf_token }}";
+{% block scripts %}
+<script src="{% static 'game/board.js' %}"></script>
+<script>
+  const words = {{ words_json|safe }};
+  const combinations = {{ combinations_json|safe }};
+  const checkUrl = "{% url 'check_puzzle' puzzle.pk %}";
+  const checkRowUrl = "{% url 'check_row' puzzle.pk %}";
+  const csrfToken = "{{ csrf_token }}";
 
-    const eqContainer = document.getElementById("equations");
-    const toggleEl = document.getElementById("error-check-toggle");
+  const eqContainer = document.getElementById("equations");
+  const toggleEl = document.getElementById("error-check-toggle");
 
-    const solved = createSolvedGroup({
-      sectionEl: document.getElementById("solved-section"),
-      listEl: document.getElementById("solved-list"),
-      countEl: document.getElementById("solved-count"),
-      toggleEl: document.getElementById("solved-toggle"),
-      boardEl: eqContainer,
-    });
+  const solved = createSolvedGroup({
+    sectionEl: document.getElementById("solved-section"),
+    listEl: document.getElementById("solved-list"),
+    countEl: document.getElementById("solved-count"),
+    toggleEl: document.getElementById("solved-toggle"),
+    boardEl: eqContainer,
+  });
 
-    const board = createBoard({
-      bankEl: document.getElementById("word-bank"),
-      boardEl: eqContainer,
-      words, combinations,
-      onRowChanged: handleRowChange,
-    });
+  const board = createBoard({
+    bankEl: document.getElementById("word-bank"),
+    boardEl: eqContainer,
+    words, combinations,
+    onRowChanged: handleRowChange,
+  });
 
-    let submittedFinal = false;
+  let submittedFinal = false;
 
-    function clearRowVisuals(comboIdx) {
-      board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
-      solved.markUnsolved(comboIdx);
+  function clearRowVisuals(comboIdx) {
+    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
+    solved.markUnsolved(comboIdx);
+  }
+
+  function updateHint() {
+    if (toggleEl.checked) {
+      updateAllFilledHint({ board, solved, expected: combinations.length });
+    } else {
+      document.querySelectorAll(".drop-box").forEach(b => b.classList.remove("slot-yellow"));
     }
+  }
 
-    function updateHint() {
-      if (toggleEl.checked) {
-        updateAllFilledHint({ board, solved, expected: combinations.length });
-      } else {
-        document.querySelectorAll(".drop-box").forEach(b => b.classList.remove("slot-yellow"));
-      }
+  function handleRowChange(comboIdx) {
+    clearRowVisuals(comboIdx);
+    submittedFinal = false;
+    if (toggleEl.checked && board.isRowFilled(comboIdx)) {
+      checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
+        .then(afterCheck);
+    } else if (!toggleEl.checked && board.allRowsFilled()) {
+      submitFinal();
+    } else {
+      updateHint();
     }
+  }
 
-    function handleRowChange(comboIdx) {
-      clearRowVisuals(comboIdx);
-      submittedFinal = false;
-      if (toggleEl.checked && board.isRowFilled(comboIdx)) {
-        checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
-          .then(afterCheck);
-      } else if (!toggleEl.checked && board.allRowsFilled()) {
-        submitFinal();
-      } else {
-        updateHint();
-      }
+  function afterCheck() {
+    if (solved.count() === combinations.length && !submittedFinal) {
+      submittedFinal = true;
+      submitFinal();
+    } else {
+      updateHint();
     }
+  }
 
-    function afterCheck() {
-      if (solved.count() === combinations.length && !submittedFinal) {
-        submittedFinal = true;
-        submitFinal();
-      } else {
-        updateHint();
-      }
+  function submitFinal() {
+    const payload = combinations.map((c, i) => ({ id: c.id, words: board.rowWords(String(i)) }));
+    fetch(checkUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+      body: JSON.stringify(payload),
+    })
+      .then(r => r.json())
+      .then(data => { data.correct ? showCorrect() : showWrong(); });
+  }
+
+  toggleEl.addEventListener("change", () => {
+    if (toggleEl.checked) {
+      board.eachCombo(comboIdx => {
+        if (board.isRowFilled(comboIdx)) {
+          checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
+            .then(afterCheck);
+        }
+      });
+    } else {
+      board.eachCombo(clearRowVisuals);
+      updateHint();
     }
+  });
 
-    function submitFinal() {
-      const payload = combinations.map((c, i) => ({ id: c.id, words: board.rowWords(String(i)) }));
-      fetch(checkUrl, {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
-        body: JSON.stringify(payload),
-      })
-        .then(r => r.json())
-        .then(data => { data.correct ? showCorrect() : showWrong(); });
-    }
-
-    toggleEl.addEventListener("change", () => {
-      if (toggleEl.checked) {
-        board.eachCombo(comboIdx => {
-          if (board.isRowFilled(comboIdx)) {
-            checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
-              .then(afterCheck);
-          }
-        });
-      } else {
-        board.eachCombo(clearRowVisuals);
-        updateHint();
-      }
-    });
-
-    function showWrong() { document.getElementById("overlay-wrong").classList.add("show"); }
-    function dismissOverlay() { document.getElementById("overlay-wrong").classList.remove("show"); }
-    function showCorrect() {
-      document.getElementById("overlay-correct").classList.add("show");
-      launchFireworks("fireworks");
-    }
-  </script>
-</body>
-</html>
+  function showWrong() { document.getElementById("overlay-wrong").classList.add("show"); }
+  function dismissOverlay() { document.getElementById("overlay-wrong").classList.remove("show"); }
+  function showCorrect() {
+    document.getElementById("overlay-correct").classList.add("show");
+    launchFireworks("fireworks");
+  }
+</script>
+{% endblock %}

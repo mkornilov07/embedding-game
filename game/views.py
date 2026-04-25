@@ -19,7 +19,7 @@ from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordSum
 
 
 def puzzle_list(request):
-    puzzles = list(Puzzle.objects.select_related("created_by").order_by("-pk"))
+    puzzles = list(Puzzle.objects.select_related("created_by").order_by("-pinned", "-pk"))
     has_duel_puzzles = any(p.for_duel for p in puzzles)
     # Dropdown in the duel form keeps duel-generated puzzles at the bottom.
     # Python's sort is stable, so within each group the -pk chronological order is preserved.
@@ -190,12 +190,19 @@ def register(request):
     return render(request, "game/register.html", {"form": form})
 
 
+def _editable_puzzle_or_404(request, pk):
+    """Owner can edit their puzzle; staff can edit anyone's."""
+    if request.user.is_staff:
+        return get_object_or_404(Puzzle, pk=pk)
+    return get_object_or_404(Puzzle, pk=pk, created_by=request.user)
+
+
 @login_required
 def create_puzzle(request, pk=None):
     existing = None
     word_sums = []
     if pk is not None:
-        existing = get_object_or_404(Puzzle, pk=pk, created_by=request.user)
+        existing = _editable_puzzle_or_404(request, pk)
         for combo in existing.combinations.all():
             try:
                 ws = combo.wordsum
@@ -223,7 +230,7 @@ def save_puzzle(request):
         return JsonResponse({"error": "Name and at least one word sum required."}, status=400)
 
     if puzzle_id is not None:
-        puzzle = get_object_or_404(Puzzle, pk=puzzle_id, created_by=request.user)
+        puzzle = _editable_puzzle_or_404(request, puzzle_id)
         puzzle.name = name
         puzzle.save()
         puzzle.combinations.all().delete()
@@ -243,9 +250,20 @@ def save_puzzle(request):
 @login_required
 @require_POST
 def delete_puzzle(request, pk):
-    puzzle = get_object_or_404(Puzzle, pk=pk, created_by=request.user)
+    puzzle = _editable_puzzle_or_404(request, pk)
     puzzle.delete()
     return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def pin_puzzle(request, pk):
+    if not request.user.is_staff:
+        return JsonResponse({"error": "Admins only."}, status=403)
+    puzzle = get_object_or_404(Puzzle, pk=pk)
+    puzzle.pinned = not puzzle.pinned
+    puzzle.save(update_fields=["pinned"])
+    return JsonResponse({"pinned": puzzle.pinned})
 
 
 @login_required
@@ -258,9 +276,9 @@ def generate_combinations(request):
     model_name = data.get("model")
 
     related_pairs = data.get("related_pairs", True)
-    cosmul = data.get("cosmul", False)
+    cosmul = data.get("cosmul", True)
     abtt = data.get("abtt", True)
-    top_n_vocab = int(data.get("top_n_vocab") or 0)
+    top_n_vocab = int(data.get("top_n_vocab") or 3000)
     refine_iterations = int(data.get("refine_iterations") or 1)
     min_similarity = data.get("min_similarity")
     min_refined_similarity = data.get("min_refined_similarity")
