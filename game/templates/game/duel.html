@@ -99,7 +99,7 @@
 
   function handleRowChange(comboIdx) {
     // Clear stale styling + solved state for this row.
-    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
+    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct", "slot-shuffled"));
     solved.markUnsolved(comboIdx);
 
     if (!board.isRowFilled(comboIdx)) {

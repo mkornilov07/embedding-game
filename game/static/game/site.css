@@ -768,7 +768,8 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
   background: var(--color-success-soft);
   color: var(--color-success-text);
 }
-.drop-box.slot-yellow {
+.drop-box.slot-yellow,
+.drop-box.slot-shuffled {
   box-shadow: 0 0 0 3px var(--color-warn), 0 0 14px rgb(245 158 11 / 0.7);
   animation: slot-yellow-pulse 1.4s ease-in-out infinite;
 }

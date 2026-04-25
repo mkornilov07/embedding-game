@@ -77,7 +77,7 @@
   let submittedFinal = false;
 
   function clearRowVisuals(comboIdx) {
-    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct"));
+    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct", "slot-shuffled"));
     solved.markUnsolved(comboIdx);
   }
 
