@@ -76,11 +76,6 @@
 
   let submittedFinal = false;
 
-  function clearRowVisuals(comboIdx) {
-    board.boxes(comboIdx).forEach(b => b.classList.remove("slot-wrong", "slot-correct", "slot-shuffled"));
-    solved.markUnsolved(comboIdx);
-  }
-
   function updateHint() {
     if (toggleEl.checked) {
       updateAllFilledHint({ board, solved, expected: combinations.length });
@@ -89,12 +84,24 @@
     }
   }
 
+  function checkRow(comboIdx) {
+    return checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
+      .then(() => {
+        // Toggle was switched off mid-flight — undo the slot styling we just
+        // applied so the user doesn't see stale colors after disabling checks.
+        if (!toggleEl.checked) {
+          clearRowVisuals({ board, solved, comboIdx });
+          return;
+        }
+        afterCheck();
+      });
+  }
+
   function handleRowChange(comboIdx) {
-    clearRowVisuals(comboIdx);
+    clearRowVisuals({ board, solved, comboIdx });
     submittedFinal = false;
     if (toggleEl.checked && board.isRowFilled(comboIdx)) {
-      checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
-        .then(afterCheck);
+      checkRow(comboIdx);
     } else if (!toggleEl.checked && board.allRowsFilled()) {
       submitFinal();
     } else {
@@ -125,13 +132,10 @@
   toggleEl.addEventListener("change", () => {
     if (toggleEl.checked) {
       board.eachCombo(comboIdx => {
-        if (board.isRowFilled(comboIdx)) {
-          checkRowAndStyle({ url: checkRowUrl, csrfToken, board, solved, comboIdx })
-            .then(afterCheck);
-        }
+        if (board.isRowFilled(comboIdx)) checkRow(comboIdx);
       });
     } else {
-      board.eachCombo(clearRowVisuals);
+      board.eachCombo(comboIdx => clearRowVisuals({ board, solved, comboIdx }));
       updateHint();
     }
   });

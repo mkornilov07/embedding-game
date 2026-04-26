@@ -17,6 +17,13 @@
  * (e.g. check a row with the server, or verify all rows are filled).
  */
 (function (global) {
+  // Delay between marking a row solved and visually moving it to the solved
+  // list. Long enough to read the green slot styling, short enough to feel snappy.
+  const SOLVE_DELAY_MS = 450;
+
+  // CSS classes assigned by checkRowAndStyle from server feedback.
+  const SLOT_FEEDBACK_CLASSES = ["slot-wrong", "slot-correct", "slot-shuffled"];
+
   function createBoard({ bankEl, boardEl, words, combinations, onRowChanged }) {
     let dragIndex = null;
     let dragSourceBox = null;
@@ -38,11 +45,13 @@
       row.className = "equation";
       row.dataset.combo = i;
       if (combo.type === "word_sum") {
-        for (let j = 0; j < 3; j++) {
-          if (j === 1) row.appendChild(makeOperator("+"));
-          if (j === 2) row.appendChild(makeOperator("="));
-          row.appendChild(makeDropBox(i, j));
-        }
+        row.append(
+          makeDropBox(i, 0),
+          makeOperator("+"),
+          makeDropBox(i, 1),
+          makeOperator("="),
+          makeDropBox(i, 2),
+        );
       }
       boardEl.appendChild(row);
     });
@@ -158,12 +167,12 @@
       box.textContent = words[wordIdx].text;
       box.dataset.wordIndex = wordIdx;
       box.classList.add("filled");
-      box.classList.remove("slot-wrong", "slot-correct", "slot-shuffled");
+      box.classList.remove(...SLOT_FEEDBACK_CLASSES);
     }
     function clearBox(box) {
       box.textContent = "";
       delete box.dataset.wordIndex;
-      box.classList.remove("filled", "slot-wrong", "slot-correct", "slot-shuffled");
+      box.classList.remove("filled", ...SLOT_FEEDBACK_CLASSES);
     }
     function markBubblePlaced(wordIdx, placed) {
       const b = bankEl.querySelector(`[data-index="${wordIdx}"]`);
@@ -204,14 +213,15 @@
    *     countEl:   <span>,     // text node for the counter
    *     toggleEl:  <button>,   // collapse/expand button
    *     boardEl:   <div>,      // main equations container (where rows live when not solved)
-   *     solveDelayMs: 450,     // optional: delay before moving so users see the green slots
    *   });
    *
    *   solved.markSolved(comboIdx);   // schedule the row to move into the solved list
    *   solved.markUnsolved(comboIdx); // move it back immediately; cancels any pending solve
-   *   solved.count();                // how many rows are currently in the solved list
+   *   solved.count();                // logical solved count (pending + already moved)
    */
-  function createSolvedGroup({ sectionEl, listEl, countEl, toggleEl, boardEl, solveDelayMs = 450 }) {
+  function createSolvedGroup({ sectionEl, listEl, countEl, toggleEl, boardEl }) {
+    // Pending rows are scheduled to move into the solved list after a delay,
+    // but already count as solved so completion checks aren't blocked by it.
     const pending = new Map();
 
     toggleEl.addEventListener("click", () => {
@@ -238,7 +248,7 @@
           listEl.appendChild(row);
           update();
         }
-      }, solveDelayMs);
+      }, SOLVE_DELAY_MS);
       pending.set(comboIdx, t);
     }
 
@@ -268,10 +278,15 @@
 
     return {
       markSolved, markUnsolved,
-      // Pending rows count too, so the 450ms move delay doesn't briefly read
-      // as "not done yet" when the final row is solved.
       count: () => pending.size + listEl.children.length,
     };
+  }
+
+  /* Reset a single row's slot styling and unmark it from the solved group.
+   * Call at the start of any row change to wipe stale check feedback. */
+  function clearRowVisuals({ board, solved, comboIdx }) {
+    board.boxes(comboIdx).forEach(b => b.classList.remove(...SLOT_FEEDBACK_CLASSES));
+    solved.markUnsolved(comboIdx);
   }
 
   /* Run error-check on a single row: POST its words, then style each slot
@@ -282,40 +297,38 @@
    *   { green_slots: [indices], yellow_slots: [indices] }.
    * Slots not in either list render red.
    */
-  function checkRowAndStyle({ url, csrfToken, board, solved, comboIdx, onAllCorrect }) {
+  async function checkRowAndStyle({ url, csrfToken, board, solved, comboIdx }) {
     const slotWords = board.rowWords(comboIdx);
     const boxes = board.boxes(comboIdx);
-    return fetch(url, {
+    const r = await fetch(url, {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
       body: JSON.stringify({ words: slotWords }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        const greenSet = new Set(data.green_slots || []);
-        const yellowSet = new Set(data.yellow_slots || []);
-        boxes.forEach((box, j) => {
-          box.classList.remove("slot-wrong", "slot-correct", "slot-shuffled");
-          if (greenSet.has(j)) box.classList.add("slot-correct");
-          else if (yellowSet.has(j)) box.classList.add("slot-shuffled");
-          else box.classList.add("slot-wrong");
-        });
-        const correct = greenSet.size === 3;
-        if (correct) solved.markSolved(comboIdx);
-        else solved.markUnsolved(comboIdx);
-        if (onAllCorrect) onAllCorrect(correct, data);
-        return correct;
-      });
+    });
+    const data = await r.json();
+    const greenSet = new Set(data.green_slots || []);
+    const yellowSet = new Set(data.yellow_slots || []);
+    boxes.forEach((box, slotIdx) => {
+      box.classList.remove(...SLOT_FEEDBACK_CLASSES);
+      if (greenSet.has(slotIdx)) box.classList.add("slot-correct");
+      else if (yellowSet.has(slotIdx)) box.classList.add("slot-shuffled");
+      else box.classList.add("slot-wrong");
+    });
+    const correct = greenSet.size === 3;
+    if (correct) solved.markSolved(comboIdx);
+    else solved.markUnsolved(comboIdx);
+    return correct;
   }
 
   /* Toggle the "all filled but wrong arrangement" hint: yellow glow on every
-   * drop-box. Call after each row change. `expected` is the total row count. */
+   * drop-box. Already-correct (green) boxes keep their styling — the hint is
+   * for boxes that haven't been verified yet. */
   function updateAllFilledHint({ board, solved, expected }) {
     const allFilled = board.allRowsFilled();
     const allDone = solved.count() >= expected;
     const hint = allFilled && !allDone;
     document.querySelectorAll(".drop-box").forEach(b => {
-      b.classList.toggle("slot-yellow", hint);
+      b.classList.toggle("slot-yellow", hint && !b.classList.contains("slot-correct"));
     });
   }
 
@@ -344,6 +357,7 @@
 
   global.createBoard = createBoard;
   global.createSolvedGroup = createSolvedGroup;
+  global.clearRowVisuals = clearRowVisuals;
   global.checkRowAndStyle = checkRowAndStyle;
   global.updateAllFilledHint = updateAllFilledHint;
   global.launchFireworks = launchFireworks;

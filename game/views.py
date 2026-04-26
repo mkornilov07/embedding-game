@@ -541,9 +541,7 @@ def duel_row_solved(request, pk):
     """Same contract as check_row (returns green_slots/yellow_slots) plus duel bookkeeping.
 
     If the row is fully correct, records it against the user's DuelProgress
-    and (if this was the final row) marks the duel completed. The response
-    always includes the per-slot color hints so the duel UI can render the
-    same slot-level feedback the stand-alone puzzle page gets.
+    and (if this was the final row) marks the duel completed.
     """
     duel = get_object_or_404(Duel, pk=pk, status=Duel.STATUS_ACTIVE)
     if request.user.id not in (duel.inviter_id, duel.opponent_id):
@@ -558,35 +556,29 @@ def duel_row_solved(request, pk):
     green, yellow = _check_row(word_sums, slot_words)
     total = len(word_sums)
 
-    if len(green) != 3:
-        progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
-        return JsonResponse({
-            "green_slots": green,
-            "yellow_slots": yellow,
-            "count": progress.count if progress else 0,
-            "total": total,
-            "finished": False,
-        })
+    progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
+    my_count = progress.count if progress else 0
+    finished = False
 
-    # Correct row: dedupe into the user's solved set.
-    matched = [sorted(slot_words[:2]), slot_words[2]]
-    progress, _ = DuelProgress.objects.get_or_create(duel=duel, user=request.user)
-    existing = {(tuple(row[0]), row[1]) for row in progress.solved_rows}
-    if (tuple(matched[0]), matched[1]) not in existing:
-        progress.solved_rows.append(matched)
-        progress.save(update_fields=["solved_rows"])
-    my_count = len(progress.solved_rows)
-
-    finished = my_count >= total
-    if finished:
-        duel.status = Duel.STATUS_COMPLETED
-        duel.winner = request.user
-        duel.completed_at = timezone.now()
-        duel.save(update_fields=["status", "winner", "completed_at"])
-        PuzzleCompletion.objects.get_or_create(user=request.user, puzzle=duel.puzzle)
+    if len(green) == 3:
+        matched = [sorted(slot_words[:2]), slot_words[2]]
+        progress, _ = DuelProgress.objects.get_or_create(duel=duel, user=request.user)
+        existing = {(tuple(row[0]), row[1]) for row in progress.solved_rows}
+        if (tuple(matched[0]), matched[1]) not in existing:
+            progress.solved_rows.append(matched)
+            progress.save(update_fields=["solved_rows"])
+        my_count = len(progress.solved_rows)
+        finished = my_count >= total
+        if finished:
+            duel.status = Duel.STATUS_COMPLETED
+            duel.winner = request.user
+            duel.completed_at = timezone.now()
+            duel.save(update_fields=["status", "winner", "completed_at"])
+            PuzzleCompletion.objects.get_or_create(user=request.user, puzzle=duel.puzzle)
 
     return JsonResponse({
-        "wrong_slots": [],
+        "green_slots": green,
+        "yellow_slots": yellow,
         "count": my_count,
         "total": total,
         "finished": finished,
