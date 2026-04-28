@@ -8,6 +8,7 @@ class Puzzle(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="puzzles",
     )
     for_duel = models.BooleanField(default=False)
+    is_daily = models.BooleanField(default=False)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 

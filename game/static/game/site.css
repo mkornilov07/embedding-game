@@ -523,6 +523,20 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
 }
 .puzzle-item { position: relative; }
 .puzzle-list:not(.show-duel) .puzzle-item--duel { display: none; }
+.puzzle-list:not(.show-daily) .puzzle-item--daily { display: none; }
+.daily-badge {
+  display: inline-block;
+  background: var(--color-orange);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  text-transform: uppercase;
+}
 .puzzle-item.is-pinned .puzzle-link {
   background: #fffbeb;
   border-left: 3px solid #d69e2e;

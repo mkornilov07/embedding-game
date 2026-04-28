@@ -52,12 +52,19 @@
         Show duel puzzles
       </label>
     {% endif %}
-    <div class="puzzle-list" id="puzzle-list">
+    {% if has_daily_puzzles %}
+      <label class="duel-filter">
+        <input type="checkbox" id="show-daily-toggle" checked>
+        Show daily puzzles
+      </label>
+    {% endif %}
+    <div class="puzzle-list show-daily" id="puzzle-list">
       {% for p in puzzles %}
-        <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% endif %}{% if p.pinned %} is-pinned{% endif %}" data-puzzle-id="{{ p.pk }}">
+        <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% endif %}{% if p.is_daily %} puzzle-item--daily{% endif %}{% if p.pinned %} is-pinned{% endif %}" data-puzzle-id="{{ p.pk }}">
           <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
             <span class="puzzle-link-text">
               {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
+              {% if p.is_daily %}<span class="daily-badge">Daily</span>{% endif %}
               {{ p.name }}
               {% if p.created_by %}<span class="author-line">by {{ p.created_by.username }}</span>{% endif %}
               <span class="created-line">{{ p.created_at|timeago }}</span>
@@ -181,6 +188,14 @@
   if (duelToggle && puzzleList) {
     duelToggle.addEventListener("change", () => {
       puzzleList.classList.toggle("show-duel", duelToggle.checked);
+    });
+  }
+
+  // Daily-puzzle visibility toggle (shown by default)
+  const dailyToggle = document.getElementById("show-daily-toggle");
+  if (dailyToggle && puzzleList) {
+    dailyToggle.addEventListener("change", () => {
+      puzzleList.classList.toggle("show-daily", dailyToggle.checked);
     });
   }
 
