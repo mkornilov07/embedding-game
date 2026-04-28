@@ -45,6 +45,39 @@
   <a class="back-btn" href="{% url 'puzzle_list' %}">All Puzzles</a>
   <div class="fireworks" id="fireworks"></div>
 </div>
+
+{% if not user.is_authenticated %}
+<div class="overlay overlay-howto" id="overlay-howto">
+  <div class="howto-card">
+    <h2 class="howto-title">How to Play</h2>
+    <div class="howto-demo" aria-hidden="true">
+      <div class="howto-equation">
+        <div class="howto-slot" data-slot="0"><span>SUN</span></div>
+        <span class="howto-op">+</span>
+        <div class="howto-slot" data-slot="1"><span>RAIN</span></div>
+        <span class="howto-op">=</span>
+        <div class="howto-slot" data-slot="2"><span>RAINBOW</span></div>
+      </div>
+      <div class="howto-bank">
+        <span class="howto-bubble">SUN</span>
+        <span class="howto-bubble">RAIN</span>
+        <span class="howto-bubble">RAINBOW</span>
+      </div>
+    </div>
+    <ol class="howto-steps">
+      <li><strong>Drag or click</strong> word bubbles into the equation slots.</li>
+      <li>Build word sums &mdash; <em>two ideas</em> that combine into <em>a third</em>.</li>
+      <li>Solve every row to win.</li>
+    </ol>
+    <p class="howto-account">
+      Want to track wins, build puzzles, or duel a friend?
+      <a href="{% url 'register' %}">Sign up</a> &middot;
+      <a href="{% url 'login' %}">Log in</a>
+    </p>
+    <button type="button" class="howto-close" id="howto-close">Got it!</button>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -146,5 +179,18 @@
     document.getElementById("overlay-correct").classList.add("show");
     launchFireworks("fireworks");
   }
+
+  // How-to overlay (shown once per session for anonymous users).
+  const howto = document.getElementById("overlay-howto");
+  if (howto && !sessionStorage.getItem("howto_seen")) {
+    howto.classList.add("show");
+  }
+  function dismissHowto() {
+    howto.classList.remove("show");
+    sessionStorage.setItem("howto_seen", "1");
+  }
+  document.getElementById("howto-close")?.addEventListener("click", dismissHowto);
+  // Click on the backdrop (but not the card) also dismisses.
+  howto?.addEventListener("click", e => { if (e.target === howto) dismissHowto(); });
 </script>
 {% endblock %}
