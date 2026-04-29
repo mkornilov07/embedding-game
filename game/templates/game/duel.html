@@ -53,6 +53,7 @@
   <div class="icon">&#x2717;</div>
   <div class="message">You lost</div>
   <div class="sub" id="lose-sub"></div>
+  <button type="button" class="back-btn" id="keep-playing-btn">Keep playing</button>
   <a class="back-btn" href="{% url 'puzzle_list' %}">Home</a>
 </div>
 {% endblock %}
@@ -61,11 +62,13 @@
 <script src="{% static 'game/board.js' %}"></script>
 <script>
   const duelId = {{ duel.pk }};
+  const myUserId = {{ request.user.id }};
   const total = {{ total }};
   const words = {{ words_json|safe }};
   const combinations = {{ combinations_json|safe }};
-  const rowSolvedUrl = "{% url 'duel_row_solved' duel.pk %}";
-  const stateUrl = "{% url 'duel_state' duel.pk %}";
+  // Mutable: swapped to checkRowUrl after the duel ends and the user opts to keep playing.
+  let rowCheckUrl = "{% url 'duel_row_solved' duel.pk %}";
+  const checkRowUrl = "{% url 'check_row' puzzle.pk %}";
   const csrfToken = "{{ csrf_token }}";
   const alreadyFinished = {% if winner_username %}true{% else %}false{% endif %};
   const preWinner = "{{ winner_username|escapejs }}";
@@ -103,7 +106,7 @@
       updateAllFilledHint({ board, solved, expected: total });
       return;
     }
-    checkRowAndStyle({ url: rowSolvedUrl, csrfToken, board, solved, comboIdx })
+    checkRowAndStyle({ url: rowCheckUrl, csrfToken, board, solved, comboIdx })
       .then(() => updateAllFilledHint({ board, solved, expected: total }));
   }
 
@@ -121,6 +124,8 @@
   }
 
   function showEnd(won, winnerName) {
+    // Surrender is meaningless once the duel is over; hide it.
+    if (surrenderBtn) surrenderBtn.style.display = "none";
     if (won) {
       document.getElementById("overlay-win").classList.add("show");
       launchFireworks("fireworks");
@@ -130,27 +135,31 @@
     }
   }
 
-  if (alreadyFinished) {
-    showEnd(preWinner === myUsername, preWinner);
-  } else {
-    let pollTimer = null;
-    async function pollOnce() {
-      try {
-        const r = await fetch(stateUrl, {headers: {"Accept": "application/json"}});
-        if (!r.ok) return;
-        const s = await r.json();
-        myCountEl.textContent = s.my_count;
-        oppCountEl.textContent = s.opp_count;
-        updateBar(myBar, s.my_count);
-        updateBar(oppBar, s.opp_count);
-        if (s.status === "completed") {
-          clearInterval(pollTimer);
-          showEnd(s.winner_is_me, s.winner_username);
-        }
-      } catch (_) { /* network blip — next tick will retry */ }
+  // "Keep playing" after a loss: hide the overlay and fall back to the
+  // standalone puzzle's row-check endpoint, which doesn't require an active duel.
+  document.getElementById("keep-playing-btn").addEventListener("click", () => {
+    document.getElementById("overlay-lose").classList.remove("show");
+    rowCheckUrl = checkRowUrl;
+  });
+
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws/duel/${duelId}/`);
+  ws.onmessage = ev => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "progress") {
+      if (msg.user_id === myUserId) {
+        myCountEl.textContent = msg.count;
+        updateBar(myBar, msg.count);
+      } else {
+        oppCountEl.textContent = msg.count;
+        updateBar(oppBar, msg.count);
+      }
+    } else if (msg.type === "duel_ended") {
+      showEnd(msg.winner_id === myUserId, msg.winner_username);
     }
-    pollTimer = setInterval(pollOnce, 1500);
-    pollOnce();
-  }
+  };
+
+  // If the page was loaded after the duel already ended, show the result immediately.
+  if (alreadyFinished) showEnd(preWinner === myUsername, preWinner);
 </script>
 {% endblock %}

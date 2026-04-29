@@ -1,2 +1,2 @@
 release: python manage.py migrate --noinput
-web: gunicorn mysite.wsgi --log-file -
+web: daphne -b 0.0.0.0 -p $PORT mysite.asgi:application

@@ -101,6 +101,23 @@
       </div>
     {% endif %}
 
+    {% for inv in incoming_invites %}
+      <div class="card" data-invite-card="{{ inv.pk }}">
+        <h3>Invite from {{ inv.inviter.username }}</h3>
+        <p class="sub">Puzzle: <em>{{ inv.puzzle.name }}</em></p>
+        <button class="btn btn-primary" data-accept-id="{{ inv.pk }}">Accept</button>
+        <button class="btn" data-decline-id="{{ inv.pk }}">Decline</button>
+      </div>
+    {% endfor %}
+
+    {% if outgoing_invite %}
+      <div class="card" data-invite-card="{{ outgoing_invite.pk }}">
+        <h3>Waiting for {{ outgoing_invite.opponent.username }}&hellip;</h3>
+        <p class="sub">Puzzle: <em>{{ outgoing_invite.puzzle.name }}</em></p>
+        <button class="btn" data-cancel-id="{{ outgoing_invite.pk }}">Withdraw</button>
+      </div>
+    {% endif %}
+
     {% if not outgoing_invite and not incoming_invites and not active_duel %}
       <div class="card">
         <h3>Challenge someone</h3>
@@ -305,72 +322,64 @@
     banner.dataset.mode = "";
   }
 
+  // Shared invite actions — used by both the banner and the duels-tab cards.
+  async function acceptInvite(id) {
+    const { status, data } = await postJson(`/duel/${id}/accept/`, {});
+    if (status >= 400) { alert(data.error || "Failed to accept."); return; }
+    window.location.href = data.url;
+  }
+  async function declineInvite(id) {
+    await postJson(`/duel/${id}/decline/`, {});
+    location.reload();
+  }
+  async function withdrawInvite(id) {
+    await postJson(`/duel/${id}/cancel/`, {});
+    location.reload();
+  }
+
   if (banner) {
-    document.getElementById("banner-accept").addEventListener("click", async () => {
-      const id = banner.dataset.duelId;
-      if (!id) return;
-      const { status, data } = await postJson(`/duel/${id}/accept/`, {});
-      if (status >= 400) { alert(data.error || "Failed to accept."); return; }
-      window.location.href = data.url;
+    document.getElementById("banner-accept").addEventListener("click", () => {
+      if (banner.dataset.duelId) acceptInvite(banner.dataset.duelId);
     });
-    document.getElementById("banner-decline").addEventListener("click", async () => {
-      const id = banner.dataset.duelId;
-      if (!id) return;
-      hideBanner();
-      await postJson(`/duel/${id}/decline/`, {});
+    document.getElementById("banner-decline").addEventListener("click", () => {
+      if (banner.dataset.duelId) declineInvite(banner.dataset.duelId);
     });
-    document.getElementById("banner-withdraw").addEventListener("click", async () => {
-      const id = banner.dataset.duelId;
-      if (!id) return;
-      hideBanner();
-      await postJson(`/duel/${id}/cancel/`, {});
-      // Reload so the "Challenge someone" form comes back.
-      location.reload();
+    document.getElementById("banner-withdraw").addEventListener("click", () => {
+      if (banner.dataset.duelId) withdrawInvite(banner.dataset.duelId);
     });
   }
 
-  // Lobby polling: reconcile the banner against server-side state.
-  // Tracks the last-seen banner mode so we can detect transitions
-  // (e.g. outgoing-pending -> gone => declined or cancelled => reload).
+  // Tab-card invite buttons (rendered server-side; one per pending invite).
+  document.querySelectorAll("[data-accept-id]").forEach(btn => {
+    btn.addEventListener("click", () => acceptInvite(btn.dataset.acceptId));
+  });
+  document.querySelectorAll("[data-decline-id]").forEach(btn => {
+    btn.addEventListener("click", () => declineInvite(btn.dataset.declineId));
+  });
+  document.querySelectorAll("[data-cancel-id]").forEach(btn => {
+    btn.addEventListener("click", () => withdrawInvite(btn.dataset.cancelId));
+  });
+
+  // Lobby WebSocket for live invite events.
   if (isAuthed) {
-    let lastMode = banner ? (banner.dataset.mode || "") : "";
-    async function pollLobby() {
-      try {
-        const r = await fetch("{% url 'lobby_state' %}", {headers: {"Accept": "application/json"}});
-        if (!r.ok) return;
-        const s = await r.json();
-        if (s.active_duel_url) {
-          window.location.href = s.active_duel_url;
-          return;
-        }
-        if (s.outgoing) {
-          showBanner("outgoing", {
-            id: s.outgoing.id,
-            opponent: s.outgoing.opponent,
-            puzzle_name: s.outgoing.puzzle_name,
-          });
-          lastMode = "outgoing";
-        } else if (s.incoming) {
-          showBanner("incoming", {
-            id: s.incoming.id,
-            inviter: s.incoming.inviter,
-            puzzle_name: s.incoming.puzzle_name,
-          });
-          lastMode = "incoming";
-        } else {
-          if (lastMode === "outgoing") {
-            // Our pending invite is gone (declined or auto-cleaned). Reload
-            // so the "Challenge someone" form comes back.
-            location.reload();
-            return;
-          }
-          hideBanner();
-          lastMode = "";
-        }
-      } catch (_) { /* network blip — next tick will retry */ }
-    }
-    setInterval(pollLobby, 3000);
-    pollLobby();
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/ws/lobby/`);
+    ws.onmessage = ev => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "invite_received") {
+        showBanner("incoming", msg.duel);
+      } else if (msg.type === "invite_cancelled") {
+        // Inviter withdrew: slide the banner away.
+        hideBanner();
+      } else if (msg.type === "invite_accepted") {
+        window.location.href = msg.url;
+      } else if (msg.type === "invite_declined") {
+        // Opponent declined our invite — hide the banner and refresh to
+        // bring the challenge form back.
+        hideBanner();
+        setTimeout(() => location.reload(), 400);
+      }
+    };
   }
 </script>
 {% endblock %}

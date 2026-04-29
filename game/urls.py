@@ -17,13 +17,11 @@ urlpatterns = [
     path("puzzle/<int:pk>/delete/", views.delete_puzzle, name="delete_puzzle"),
     path("puzzle/<int:pk>/pin/", views.pin_puzzle, name="pin_puzzle"),
     path("generate/", views.generate_combinations, name="generate_combinations"),
-    path("lobby-state/", views.lobby_state, name="lobby_state"),
     path("duel/create/", views.create_duel, name="create_duel"),
     path("duel/<int:pk>/cancel/", views.cancel_duel, name="cancel_duel"),
     path("duel/<int:pk>/accept/", views.accept_duel, name="accept_duel"),
     path("duel/<int:pk>/decline/", views.decline_duel, name="decline_duel"),
     path("duel/<int:pk>/", views.duel_detail, name="duel_detail"),
-    path("duel/<int:pk>/state/", views.duel_state, name="duel_state"),
     path("duel/<int:pk>/row-solved/", views.duel_row_solved, name="duel_row_solved"),
     path("duel/<int:pk>/surrender/", views.duel_surrender, name="duel_surrender"),
 ]
