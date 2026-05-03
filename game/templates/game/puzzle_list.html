@@ -46,21 +46,31 @@
     {% if user.is_authenticated %}
       <a class="puzzle-link is-create" href="{% url 'create_puzzle' %}">+ Create Puzzle</a>
     {% endif %}
-    {% if has_duel_puzzles %}
-      <label class="duel-filter">
-        <input type="checkbox" id="show-duel-toggle">
-        Show duel puzzles
-      </label>
+    {% if has_daily_puzzles or has_user_puzzles or has_duel_puzzles %}
+      <div class="puzzle-filters">
+        {% if has_daily_puzzles %}
+          <label class="puzzle-filter">
+            <input type="checkbox" id="show-daily-toggle" checked>
+            Show daily
+          </label>
+        {% endif %}
+        {% if has_user_puzzles %}
+          <label class="puzzle-filter">
+            <input type="checkbox" id="show-user-toggle" checked>
+            Show user-created
+          </label>
+        {% endif %}
+        {% if has_duel_puzzles %}
+          <label class="puzzle-filter">
+            <input type="checkbox" id="show-duel-toggle">
+            Show duel puzzles
+          </label>
+        {% endif %}
+      </div>
     {% endif %}
-    {% if has_daily_puzzles %}
-      <label class="duel-filter">
-        <input type="checkbox" id="show-daily-toggle" checked>
-        Show daily puzzles
-      </label>
-    {% endif %}
-    <div class="puzzle-list show-daily" id="puzzle-list">
+    <div class="puzzle-list show-daily show-user" id="puzzle-list">
       {% for p in puzzles %}
-        <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% endif %}{% if p.is_daily %} puzzle-item--daily{% endif %}{% if p.pinned %} is-pinned{% endif %}" data-puzzle-id="{{ p.pk }}">
+        <div class="puzzle-item{% if p.for_duel %} puzzle-item--duel{% elif p.is_daily %} puzzle-item--daily{% elif p.created_by_id %} puzzle-item--user{% endif %}{% if p.pinned %} is-pinned{% endif %}" data-puzzle-id="{{ p.pk }}">
           <a class="puzzle-link" href="{% url 'puzzle' p.pk %}">
             <span class="puzzle-link-text">
               {% if p.pk in completed_ids %}<span class="check">&#x2713;</span>{% endif %}
@@ -199,21 +209,18 @@
     location.reload();
   }
 
-  // Duel-puzzle visibility toggle
-  const duelToggle = document.getElementById("show-duel-toggle");
+  // Category visibility toggles. Each toggle's `value` attr names the modifier
+  // class on the puzzle list that gates its category.
   const puzzleList = document.getElementById("puzzle-list");
-  if (duelToggle && puzzleList) {
-    duelToggle.addEventListener("change", () => {
-      puzzleList.classList.toggle("show-duel", duelToggle.checked);
-    });
-  }
-
-  // Daily-puzzle visibility toggle (shown by default)
-  const dailyToggle = document.getElementById("show-daily-toggle");
-  if (dailyToggle && puzzleList) {
-    dailyToggle.addEventListener("change", () => {
-      puzzleList.classList.toggle("show-daily", dailyToggle.checked);
-    });
+  const filterToggles = [
+    ["show-daily-toggle", "show-daily"],
+    ["show-user-toggle", "show-user"],
+    ["show-duel-toggle", "show-duel"],
+  ];
+  for (const [id, cls] of filterToggles) {
+    const el = document.getElementById(id);
+    if (!el || !puzzleList) continue;
+    el.addEventListener("change", () => puzzleList.classList.toggle(cls, el.checked));
   }
 
   // Tab switching

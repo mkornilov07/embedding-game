@@ -22,6 +22,9 @@ def puzzle_list(request):
     puzzles = list(Puzzle.objects.select_related("created_by").order_by("-pinned", "-pk"))
     has_duel_puzzles = any(p.for_duel for p in puzzles)
     has_daily_puzzles = any(p.is_daily for p in puzzles)
+    has_user_puzzles = any(
+        p.created_by_id and not p.is_daily and not p.for_duel for p in puzzles
+    )
     # Dropdown in the duel form keeps duel-generated puzzles at the bottom.
     # Python's sort is stable, so within each group the -pk chronological order is preserved.
     dropdown_puzzles = sorted(puzzles, key=lambda p: p.for_duel)
@@ -59,6 +62,7 @@ def puzzle_list(request):
         "active_duel": active_duel,
         "has_duel_puzzles": has_duel_puzzles,
         "has_daily_puzzles": has_daily_puzzles,
+        "has_user_puzzles": has_user_puzzles,
         "recent_opponents": recent_opponents,
     })
 
