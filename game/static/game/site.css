@@ -527,6 +527,7 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
 .puzzle-item { position: relative; }
 .puzzle-list:not(.show-duel) .puzzle-item--duel { display: none; }
 .puzzle-list:not(.show-daily) .puzzle-item--daily { display: none; }
+.puzzle-list:not(.show-user) .puzzle-item--user { display: none; }
 .daily-badge {
   display: inline-block;
   background: var(--color-orange);
@@ -544,17 +545,22 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
   background: #fffbeb;
   border-left: 3px solid #d69e2e;
 }
-.duel-filter {
+.puzzle-filters {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+  padding-left: var(--space-1);
+  align-self: flex-start;
+}
+.puzzle-filter {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
   font-size: 0.9rem;
   color: var(--color-text-muted);
-  align-self: flex-start;
-  width: 100%;
-  max-width: 420px;
-  padding-left: var(--space-1);
+  white-space: nowrap;
+  cursor: pointer;
 }
 .owner-actions {
   position: absolute;
