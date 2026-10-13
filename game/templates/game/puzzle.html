@@ -8,6 +8,7 @@
   <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; All Puzzles</a></div>
   <h1>{{ puzzle.name }}</h1>
   {% if puzzle.created_by %}<div class="author">by {{ puzzle.created_by.username }}</div>{% endif %}
+  <a class="duel-btn" href="{% url 'puzzle_leaderboard' puzzle.pk %}">Leaderboard</a>
   {% if user.is_authenticated %}
     <a class="duel-btn" href="{% url 'puzzle_list' %}?duel={{ puzzle.pk }}">⚔ Duel with this puzzle</a>
   {% endif %}

@@ -77,7 +77,7 @@
               {% if p.is_daily %}<span class="daily-badge">Daily</span>{% endif %}
               {{ p.name }}
               {% if p.created_by %}<span class="author-line">by {{ p.created_by.username }}</span>{% endif %}
-              <span class="created-line">{{ p.created_at|timeago }}</span>
+              <span class="created-line">{{ p.created_at|timeago }} · {{ p.solver_count }} solved</span>
             </span>
             <span class="play-btn">&#9654; Play</span>
           </a>

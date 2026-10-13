@@ -1,0 +1,25 @@
+{% extends "game/base.html" %}
+
+{% block title %}{{ puzzle.name }} leaderboard{% endblock %}
+
+{% block body %}
+<div class="page">
+  <div class="back"><a class="back-link" href="{% url 'puzzle' puzzle.pk %}">&larr; Back to puzzle</a></div>
+  <h1>{{ puzzle.name }} leaderboard</h1>
+
+  {% if leaderboard %}
+    <div class="card">
+      {% for entry in leaderboard %}
+        <div class="puzzle-item">
+          <span class="puzzle-link-text">
+            <strong>{{ forloop.counter }}. {{ entry.username }}</strong>
+            <span class="author-line">{{ entry.duration }}{% if entry.used_hints %} · used hints{% endif %}</span>
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">No logged-in users have solved this puzzle yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
