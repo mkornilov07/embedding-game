@@ -9,6 +9,13 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+{% if user.is_authenticated %}
+<div class="nav">
+  {% if user.is_staff %}<a href="{% url 'calibration' %}">Calibrate</a>{% endif %}
+  <span>{{ user.username }}</span>
+  <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Log Out</button></form>
+</div>
+{% endif %}
 {% block body %}{% endblock %}
 {% block scripts %}{% endblock %}
 </body>

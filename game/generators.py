@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import threading
 from itertools import permutations
 
 import numpy as np
@@ -39,11 +40,12 @@ MIN_SIMILARITY_COSMUL = 0.25
 MIN_REFINED_SIMILARITY_COSMUL = 0.5
 MIN_GAP_RATIO = 1.0
 MAX_SYNONYM_SIMILARITY = 0.45
-MAX_ATTEMPTS_PER_RESULT = 1000
+MAX_ATTEMPTS_PER_RESULT = 300
 REFINE_ITERATIONS = 1
 DEFAULT_TOP_N_VOCAB = 3000
 
 _cache = {}
+_cache_lock = threading.Lock()
 
 
 def _apply_abtt(model):
@@ -68,13 +70,16 @@ def _load_model(model_name, abtt=False):
     if key in _cache:
         return _cache[key]
 
-    path = os.path.join(DATA_DIR, f"{model_name}.kv")
-    model = KeyedVectors.load(path)
-    if abtt:
-        _apply_abtt(model)
-    vocab = list(model.index_to_key)
-    _cache[key] = (model, vocab)
-    return model, vocab
+    with _cache_lock:
+        if key in _cache:
+            return _cache[key]
+        path = os.path.join(DATA_DIR, f"{model_name}.kv")
+        model = KeyedVectors.load(path)
+        if abtt:
+            _apply_abtt(model)
+        vocab = list(model.index_to_key)
+        _cache[key] = (model, vocab)
+        return model, vocab
 
 
 def _sum_vector_similarity(model, addend_words, target_word):
@@ -141,13 +146,14 @@ def _best_arrangement(words, similar):
     return best_addends, best_sum, best_sim
 
 
-def generate_word_sums(count=5, model_name=None, related_pairs=True,
-                        cosmul=True, abtt=True, top_n_vocab=DEFAULT_TOP_N_VOCAB,
-                        refine_iterations=REFINE_ITERATIONS,
+def generate_word_sums(count=5, model_name=None, related_pairs=None,
+                        cosmul=None, abtt=None, top_n_vocab=None,
+                        refine_iterations=None,
                         min_similarity=None,
                         min_refined_similarity=None,
-                        min_gap_ratio=MIN_GAP_RATIO,
-                        max_synonym_similarity=MAX_SYNONYM_SIMILARITY):
+                        min_gap_ratio=None,
+                        max_synonym_similarity=None,
+                        max_attempts_per_result=MAX_ATTEMPTS_PER_RESULT):
     """Generate word sums using vector arithmetic.
 
     Args:
@@ -167,7 +173,38 @@ def generate_word_sums(count=5, model_name=None, related_pairs=True,
         min_gap_ratio: top similarity must exceed runner-up by this factor.
         max_synonym_similarity: reject triples where any pair exceeds this.
     """
-    model, vocab = _load_model(model_name or DEFAULT_MODEL, abtt=abtt)
+    if any(value is None for value in (
+        model_name, related_pairs, cosmul, abtt, top_n_vocab,
+        refine_iterations, min_similarity, min_refined_similarity,
+        min_gap_ratio, max_synonym_similarity,
+    )):
+        try:
+            from .models import GenerationDefaults
+            defaults = GenerationDefaults.objects.get(key="default")
+        except Exception:
+            defaults = None
+        if defaults:
+            model_name = defaults.model_name if model_name is None else model_name
+            related_pairs = defaults.related_pairs if related_pairs is None else related_pairs
+            cosmul = defaults.cosmul if cosmul is None else cosmul
+            abtt = defaults.abtt if abtt is None else abtt
+            top_n_vocab = defaults.top_n_vocab if top_n_vocab is None else top_n_vocab
+            refine_iterations = defaults.refine_iterations if refine_iterations is None else refine_iterations
+            min_similarity = defaults.min_similarity if min_similarity is None else min_similarity
+            min_refined_similarity = defaults.min_refined_similarity if min_refined_similarity is None else min_refined_similarity
+            min_gap_ratio = defaults.min_gap_ratio if min_gap_ratio is None else min_gap_ratio
+            max_synonym_similarity = defaults.max_synonym_similarity if max_synonym_similarity is None else max_synonym_similarity
+
+    model_name = model_name or DEFAULT_MODEL
+    related_pairs = True if related_pairs is None else related_pairs
+    cosmul = True if cosmul is None else cosmul
+    abtt = True if abtt is None else abtt
+    top_n_vocab = DEFAULT_TOP_N_VOCAB if top_n_vocab is None else top_n_vocab
+    refine_iterations = REFINE_ITERATIONS if refine_iterations is None else refine_iterations
+    min_gap_ratio = MIN_GAP_RATIO if min_gap_ratio is None else min_gap_ratio
+    max_synonym_similarity = MAX_SYNONYM_SIMILARITY if max_synonym_similarity is None else max_synonym_similarity
+
+    model, vocab = _load_model(model_name, abtt=abtt)
     vocab_pool = vocab[:top_n_vocab] if top_n_vocab and top_n_vocab > 0 else vocab
 
     similar = model.most_similar_cosmul if cosmul else model.most_similar
@@ -179,7 +216,7 @@ def generate_word_sums(count=5, model_name=None, related_pairs=True,
     results = []
     seen = set()
 
-    for _ in range(count * MAX_ATTEMPTS_PER_RESULT):
+    for _ in range(count * max_attempts_per_result):
         if len(results) >= count:
             break
 

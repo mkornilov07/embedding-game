@@ -1,0 +1,147 @@
+{% extends "game/base.html" %}
+
+{% block title %}Generation calibration{% endblock %}
+
+{% block body %}
+<div class="page calibration-page">
+  <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; Puzzles</a></div>
+  <h1>Generation calibration</h1>
+  <p class="subtitle">Choose the discrete generation settings, then select the word sum you prefer.</p>
+
+  <div class="calibration-controls">
+    <div class="field">
+      <label for="model-name">Model</label>
+      <select id="model-name">
+        {% for key, label in available_models.items %}
+          <option value="{{ key }}"{% if key == parameters.model_name %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="related-pairs">Related pairs</label>
+      <select id="related-pairs"><option value="true"{% if parameters.related_pairs %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.related_pairs %} selected{% endif %}>No</option></select>
+    </div>
+    <div class="field">
+      <label for="cosmul">3CosMul</label>
+      <select id="cosmul"><option value="true"{% if parameters.cosmul %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.cosmul %} selected{% endif %}>No</option></select>
+    </div>
+    <div class="field">
+      <label for="abtt">All-but-the-top</label>
+      <select id="abtt"><option value="true"{% if parameters.abtt %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.abtt %} selected{% endif %}>No</option></select>
+    </div>
+    <div class="field">
+      <label for="top-n-vocab">Vocabulary size</label>
+      <select id="top-n-vocab">
+        {% for option in top_vocab_options %}<option value="{{ option }}"{% if option == parameters.top_n_vocab %} selected{% endif %}>{% if option == 0 %}Unlimited{% else %}{{ option }}{% endif %}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="refine-iterations">Refinement iterations</label>
+      <select id="refine-iterations">
+        {% for option in refine_options %}<option value="{{ option }}"{% if option == parameters.refine_iterations %} selected{% endif %}>{{ option }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="noise-stdev">Noise standard deviation</label>
+      <input id="noise-stdev" type="number" min="0" step="0.01" value="0.1">
+    </div>
+    <div class="field">
+      <label for="learning-rate">Learning rate</label>
+      <input id="learning-rate" type="number" min="0" step="0.01" value="0.1">
+    </div>
+  </div>
+
+  <div class="calibration-current" id="current-parameters"></div>
+  <button class="btn btn-primary" id="start-calibration">Generate candidates</button>
+  <div class="error" id="calibration-error" hidden></div>
+  <div class="calibration-grid" id="candidate-grid"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const csrfToken = "{{ csrf_token }}";
+  const startUrl = "{% url 'start_calibration' %}";
+  const selectUrl = id => `/calibrate/${id}/select/`;
+  const currentParameters = document.getElementById("current-parameters");
+  const grid = document.getElementById("candidate-grid");
+  const errorEl = document.getElementById("calibration-error");
+  const startButton = document.getElementById("start-calibration");
+
+  function discreteParameters() {
+    return {
+      model_name: document.getElementById("model-name").value,
+      related_pairs: document.getElementById("related-pairs").value === "true",
+      cosmul: document.getElementById("cosmul").value === "true",
+      abtt: document.getElementById("abtt").value === "true",
+      top_n_vocab: parseInt(document.getElementById("top-n-vocab").value),
+      refine_iterations: parseInt(document.getElementById("refine-iterations").value),
+      noise_stdev: parseFloat(document.getElementById("noise-stdev").value),
+      learning_rate: parseFloat(document.getElementById("learning-rate").value),
+    };
+  }
+
+  function showError(message) {
+    errorEl.textContent = message;
+    errorEl.hidden = !message;
+  }
+
+  function renderParameters(parameters) {
+    currentParameters.textContent = `Current: min similarity ${parameters.min_similarity.toFixed(3)} · refined ${parameters.min_refined_similarity.toFixed(3)} · gap ${parameters.min_gap_ratio.toFixed(3)} · max synonym ${parameters.max_synonym_similarity.toFixed(3)}`;
+  }
+
+  function renderRound(round) {
+    renderParameters(round.parameters);
+    document.getElementById("noise-stdev").value = round.noise_stdev;
+    document.getElementById("learning-rate").value = round.learning_rate;
+    grid.innerHTML = "";
+    round.candidates.forEach((candidate, index) => {
+      const card = document.createElement("div");
+      card.className = "calibration-candidate";
+      const button = document.createElement("button");
+      button.className = "calibration-choice";
+      button.disabled = !candidate.available;
+      button.dataset.index = index;
+      if (candidate.combination) {
+        button.textContent = `${candidate.combination.addend1} + ${candidate.combination.addend2} = ${candidate.combination.sum_word}`;
+      } else {
+        button.textContent = candidate.error || "Unavailable";
+      }
+      const label = document.createElement("div");
+      label.className = "calibration-label";
+      label.textContent = index === 0 ? "Current defaults" : `Noise ${index}`;
+      card.append(label, button);
+      button.addEventListener("click", () => chooseCandidate(round.round_id, index));
+      grid.appendChild(card);
+    });
+  }
+
+  async function postJson(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Calibration request failed.");
+    return data;
+  }
+
+  async function startCalibration() {
+    startButton.disabled = true;
+    showError("");
+    try { renderRound(await postJson(startUrl, discreteParameters())); }
+    catch (error) { showError(error.message); }
+    finally { startButton.disabled = false; }
+  }
+
+  async function chooseCandidate(roundId, index) {
+    document.querySelectorAll(".calibration-choice").forEach(button => button.disabled = true);
+    showError("");
+    try { renderRound(await postJson(selectUrl(roundId), {candidate_index: index})); }
+    catch (error) { showError(error.message); }
+  }
+
+  startButton.addEventListener("click", startCalibration);
+</script>
+{% endblock %}

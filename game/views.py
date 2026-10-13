@@ -1,13 +1,11 @@
 import json
-import random
 import traceback
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.contrib.auth import get_user_model, login
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,10 +14,16 @@ from django.views.decorators.http import require_POST
 
 from .generators import available_local_models, generate_curated_word_sums, generate_word_sums
 from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordSum
+from . import services
+from . import calibration
 
 
 def puzzle_list(request):
-    puzzles = list(Puzzle.objects.select_related("created_by").order_by("-pinned", "-pk"))
+    puzzles = list(
+        Puzzle.objects.select_related("created_by")
+        .annotate(solver_count=Count("completions__user", distinct=True))
+        .order_by("-pinned", "-pk")
+    )
     has_duel_puzzles = any(p.for_duel for p in puzzles)
     has_daily_puzzles = any(p.is_daily for p in puzzles)
     has_user_puzzles = any(
@@ -35,7 +39,10 @@ def puzzle_list(request):
     recent_opponents = []
     if request.user.is_authenticated:
         completed_ids = set(
-            PuzzleCompletion.objects.filter(user=request.user).values_list("puzzle_id", flat=True)
+            PuzzleCompletion.objects.filter(
+                user=request.user,
+                first_solved_at__isnull=False,
+            ).values_list("puzzle_id", flat=True)
         )
         incoming_invites = list(
             Duel.objects.filter(opponent=request.user, status=Duel.STATUS_PENDING)
@@ -88,36 +95,10 @@ def _recent_opponents(user, limit=5):
     return names
 
 
-def _build_board_context(puzzle):
-    """Shuffle a puzzle's combinations into the shape expected by board.js.
-
-    Returns (words_json, combinations_json, total_combinations). `total` is the
-    count of word-sum rows, useful for duel progress bars.
-    """
-    db_combinations = list(puzzle.combinations.all())
-    random.shuffle(db_combinations)
-
-    words = []
-    combinations = []
-    for combo in db_combinations:
-        try:
-            ws = combo.wordsum
-        except WordSum.DoesNotExist:
-            continue
-        idx = len(combinations)
-        words.extend([
-            {"text": ws.addend1, "combo": idx},
-            {"text": ws.addend2, "combo": idx},
-            {"text": ws.sum_word, "combo": idx},
-        ])
-        combinations.append({"id": combo.pk, "type": "word_sum"})
-    random.shuffle(words)
-    return json.dumps(words), json.dumps(combinations), len(combinations)
-
-
 def puzzle(request, pk):
     p = get_object_or_404(Puzzle, pk=pk)
-    words_json, combinations_json, _ = _build_board_context(p)
+    services.record_puzzle_open(request.user, p)
+    words_json, combinations_json, _ = services.board_context(p)
     return render(request, "game/puzzle.html", {
         "puzzle": p,
         "words_json": words_json,
@@ -130,7 +111,7 @@ def check_puzzle(request, pk):
     p = get_object_or_404(Puzzle, pk=pk)
     data = json.loads(request.body)
 
-    unmatched = set(_puzzle_word_sums(p))
+    unmatched = set(services.puzzle_word_sums(p))
     for entry in data:
         slot_words = entry["words"]
         key = (frozenset(slot_words[:2]), slot_words[2])
@@ -139,72 +120,44 @@ def check_puzzle(request, pk):
         unmatched.remove(key)
 
     correct = not unmatched
-    if correct and request.user.is_authenticated:
-        PuzzleCompletion.objects.get_or_create(user=request.user, puzzle=p)
+    if correct:
+        services.mark_puzzle_completed(request.user, p)
     return JsonResponse({"correct": correct})
-
-
-def _puzzle_word_sums(puzzle):
-    """All (frozenset{addend1, addend2}, sum_word) tuples for a puzzle."""
-    result = []
-    for combo in puzzle.combinations.all():
-        try:
-            ws = combo.wordsum
-        except WordSum.DoesNotExist:
-            continue
-        result.append((frozenset({ws.addend1, ws.addend2}), ws.sum_word))
-    return result
-
-
-def _check_row(word_sums, slot_words):
-    """Validate a 3-word row and return per-slot color hints.
-
-    Returns (green_slots, yellow_slots): lists of slot indices. Slots not in
-    either list render red (wrong). The row is solved iff green_slots covers
-    all three slots.
-
-    Yellow appears when the three words are exactly the word set of some
-    valid word sum but arranged wrong (e.g. A+C=B for a puzzle with A+B=C):
-    all three slots glow yellow, signalling 'right words, wrong order'.
-    Green appears for individually-correct slots in partial matches (e.g.
-    both addends right but the sum is the wrong word).
-    """
-    s0, s1, s2 = slot_words
-    addends = frozenset({s0, s1})
-    sum_word = s2
-
-    # Exact arrangement matches a valid sum: all three green.
-    if (addends, sum_word) in word_sums:
-        return [0, 1, 2], []
-
-    # Same word set, wrong arrangement: all three yellow.
-    word_set = {s0, s1, s2}
-    for ws_addends, ws_sum in word_sums:
-        if word_set == ws_addends | {ws_sum}:
-            return [], [0, 1, 2]
-
-    # Both addends right, sum wrong.
-    for ws_addends, _ in word_sums:
-        if addends == ws_addends:
-            return [0, 1], []
-
-    # Sum right, one addend right.
-    for ws_addends, ws_sum in word_sums:
-        if sum_word == ws_sum:
-            for i in range(2):
-                if slot_words[i] in ws_addends:
-                    return [i, 2], []
-
-    # Nothing matched.
-    return [], []
 
 
 @require_POST
 def check_row(request, pk):
     p = get_object_or_404(Puzzle, pk=pk)
     data = json.loads(request.body)
-    green, yellow = _check_row(_puzzle_word_sums(p), data["words"])
+    services.record_hint_used(request.user, p)
+    green, yellow = services.check_row(services.puzzle_word_sums(p), data["words"])
     return JsonResponse({"green_slots": green, "yellow_slots": yellow})
+
+
+def puzzle_leaderboard(request, pk):
+    puzzle = get_object_or_404(Puzzle, pk=pk)
+    completions = (
+        PuzzleCompletion.objects.filter(
+            puzzle=puzzle,
+            first_opened_at__isnull=False,
+            first_solved_at__isnull=False,
+        )
+        .select_related("user")
+        .order_by("first_solved_at")
+    )
+    leaderboard = [
+        {
+            "username": completion.user.username,
+            "duration": completion.first_solved_at - completion.first_opened_at,
+            "used_hints": completion.used_hints,
+        }
+        for completion in completions
+    ]
+    leaderboard.sort(key=lambda entry: entry["duration"])
+    return render(request, "game/leaderboard.html", {
+        "puzzle": puzzle,
+        "leaderboard": leaderboard,
+    })
 
 
 def register(request):
@@ -295,6 +248,79 @@ def pin_puzzle(request, pk):
     return JsonResponse({"pinned": puzzle.pinned})
 
 
+@staff_member_required
+def calibration_view(request):
+    defaults = calibration.get_defaults()
+    models = available_local_models()
+    models.setdefault(defaults.model_name, defaults.model_name)
+    return render(request, "game/calibration.html", {
+        "parameters": calibration.as_dict(defaults),
+        "available_models": models,
+        "top_vocab_options": (0, 1000, 3000, 5000, 10000),
+        "refine_options": (0, 1, 2, 3),
+    })
+
+
+@staff_member_required
+@require_POST
+def start_calibration(request):
+    try:
+        data = json.loads(request.body)
+        defaults = calibration.get_defaults()
+        parameters = calibration.as_dict(defaults)
+        parameters.update({
+            "model_name": data["model_name"],
+            "related_pairs": bool(data["related_pairs"]),
+            "cosmul": bool(data["cosmul"]),
+            "abtt": bool(data["abtt"]),
+            "top_n_vocab": int(data["top_n_vocab"]),
+            "refine_iterations": int(data["refine_iterations"]),
+        })
+        noise_stdev = float(data.get("noise_stdev", calibration.NOISE_STDEV))
+        learning_rate = float(data.get("learning_rate", calibration.LEARNING_RATE))
+        round_record = calibration.generate_round(
+            request.user, parameters, noise_stdev, learning_rate,
+        )
+        calibration.CalibrationClick.objects.create(
+            round=round_record,
+            event="round_started",
+            payload={
+                "parameters": parameters,
+                "noise_stdev": noise_stdev,
+                "learning_rate": learning_rate,
+            },
+        )
+        return JsonResponse(_calibration_round_payload(round_record))
+    except (KeyError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+
+
+@staff_member_required
+@require_POST
+def select_calibration_candidate(request, pk):
+    try:
+        data = json.loads(request.body)
+        round_record = calibration.select_candidate(
+            request.user, pk, int(data["candidate_index"]),
+        )
+        return JsonResponse(_calibration_round_payload(round_record))
+    except calibration.CalibrationRound.DoesNotExist:
+        return JsonResponse({"error": "Calibration round not found."}, status=404)
+    except (KeyError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+
+
+def _calibration_round_payload(round_record):
+    return {
+        "round_id": round_record.pk,
+        "parameters": round_record.parameters_before,
+        "noise_stdev": round_record.noise_stdev,
+        "learning_rate": round_record.learning_rate,
+        "noise_vectors": round_record.noise_vectors,
+        "candidates": round_record.candidates,
+    }
+
+
 @login_required
 @require_POST
 def generate_combinations(request):
@@ -349,40 +375,10 @@ def generate_combinations(request):
 
 # ---------------------------- Duels ----------------------------
 
-def _user_has_open_duel(user):
-    return Duel.objects.filter(status__in=[Duel.STATUS_PENDING, Duel.STATUS_ACTIVE]).filter(
-        Q(inviter=user) | Q(opponent=user)
-    ).exists()
-
-
-def _lobby_send(user_id, payload):
-    layer = get_channel_layer()
-    async_to_sync(layer.group_send)(
-        f"lobby_{user_id}", {"type": "lobby_event", "data": payload}
-    )
-
-
-def _duel_send(duel_id, payload):
-    layer = get_channel_layer()
-    async_to_sync(layer.group_send)(
-        f"duel_{duel_id}", {"type": "duel_event", "data": payload}
-    )
-
-
-def _duel_summary(duel):
-    return {
-        "id": duel.pk,
-        "inviter": duel.inviter.username,
-        "opponent": duel.opponent.username,
-        "puzzle_name": duel.puzzle.name,
-        "url": reverse("duel_detail", args=[duel.pk]),
-    }
-
-
 @login_required
 @require_POST
 def create_duel(request):
-    if _user_has_open_duel(request.user):
+    if services.user_has_open_duel(request.user):
         return JsonResponse(
             {"error": "You already have a pending or active duel."}, status=400
         )
@@ -404,7 +400,7 @@ def create_duel(request):
     except User.DoesNotExist:
         return JsonResponse({"error": f"No user named {opponent_username!r}."}, status=404)
 
-    if _user_has_open_duel(opponent):
+    if services.user_has_open_duel(opponent):
         return JsonResponse(
             {"error": f"{opponent_username} is already in a duel."}, status=400
         )
@@ -450,9 +446,9 @@ def create_duel(request):
         status=Duel.STATUS_PENDING,
     )
 
-    _lobby_send(opponent.id, {
+    services.send_lobby_event(opponent.id, {
         "type": "invite_received",
-        "duel": _duel_summary(duel),
+        "duel": services.duel_summary(duel),
     })
     return JsonResponse({"duel_id": duel.pk})
 
@@ -463,7 +459,7 @@ def cancel_duel(request, pk):
     duel = get_object_or_404(Duel, pk=pk, inviter=request.user, status=Duel.STATUS_PENDING)
     duel.status = Duel.STATUS_CANCELLED
     duel.save(update_fields=["status"])
-    _lobby_send(duel.opponent_id, {"type": "invite_cancelled", "duel_id": duel.pk})
+    services.send_lobby_event(duel.opponent_id, {"type": "invite_cancelled", "duel_id": duel.pk})
     return JsonResponse({"ok": True})
 
 
@@ -473,7 +469,7 @@ def decline_duel(request, pk):
     duel = get_object_or_404(Duel, pk=pk, opponent=request.user, status=Duel.STATUS_PENDING)
     duel.status = Duel.STATUS_DECLINED
     duel.save(update_fields=["status"])
-    _lobby_send(duel.inviter_id, {"type": "invite_declined", "duel_id": duel.pk})
+    services.send_lobby_event(duel.inviter_id, {"type": "invite_declined", "duel_id": duel.pk})
     return JsonResponse({"ok": True})
 
 
@@ -488,7 +484,7 @@ def accept_duel(request, pk):
     DuelProgress.objects.get_or_create(duel=duel, user=duel.opponent)
 
     url = reverse("duel_detail", args=[duel.pk])
-    _lobby_send(duel.inviter_id, {
+    services.send_lobby_event(duel.inviter_id, {
         "type": "invite_accepted", "duel_id": duel.pk, "url": url,
     })
     return JsonResponse({"duel_id": duel.pk, "url": url})
@@ -503,7 +499,7 @@ def duel_detail(request, pk):
         return redirect("puzzle_list")
 
     puzzle = duel.puzzle
-    words_json, combinations_json, total = _build_board_context(puzzle)
+    words_json, combinations_json, total = services.board_context(puzzle)
     opponent = duel.other_player(request.user)
     my_progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
     opp_progress = DuelProgress.objects.filter(duel=duel, user=opponent).first()
@@ -532,7 +528,7 @@ def duel_surrender(request, pk):
     duel.winner = winner
     duel.completed_at = timezone.now()
     duel.save(update_fields=["status", "winner", "completed_at"])
-    _duel_send(duel.pk, {
+    services.send_duel_event(duel.pk, {
         "type": "duel_ended",
         "winner_id": winner.id,
         "winner_username": winner.username,
@@ -559,8 +555,8 @@ def duel_row_solved(request, pk):
     if len(slot_words) != 3:
         return JsonResponse({"error": "Invalid row."}, status=400)
 
-    word_sums = _puzzle_word_sums(duel.puzzle)
-    green, yellow = _check_row(word_sums, slot_words)
+    word_sums = services.puzzle_word_sums(duel.puzzle)
+    green, yellow = services.check_row(word_sums, slot_words)
     total = len(word_sums)
 
     progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
@@ -568,22 +564,11 @@ def duel_row_solved(request, pk):
     finished = False
 
     if len(green) == 3:
-        matched = [sorted(slot_words[:2]), slot_words[2]]
-        progress, _ = DuelProgress.objects.get_or_create(duel=duel, user=request.user)
-        existing = {(tuple(row[0]), row[1]) for row in progress.solved_rows}
-        if (tuple(matched[0]), matched[1]) not in existing:
-            progress.solved_rows.append(matched)
-            progress.save(update_fields=["solved_rows"])
-        my_count = len(progress.solved_rows)
-        finished = my_count >= total
-        if finished:
-            duel.status = Duel.STATUS_COMPLETED
-            duel.winner = request.user
-            duel.completed_at = timezone.now()
-            duel.save(update_fields=["status", "winner", "completed_at"])
-            PuzzleCompletion.objects.get_or_create(user=request.user, puzzle=duel.puzzle)
+        my_count, finished = services.record_solved_row(
+            duel, request.user, slot_words, word_sums,
+        )
 
-        _duel_send(duel.pk, {
+        services.send_duel_event(duel.pk, {
             "type": "progress",
             "user_id": request.user.id,
             "username": request.user.username,
@@ -591,7 +576,7 @@ def duel_row_solved(request, pk):
             "total": total,
         })
         if finished:
-            _duel_send(duel.pk, {
+            services.send_duel_event(duel.pk, {
                 "type": "duel_ended",
                 "winner_id": request.user.id,
                 "winner_username": request.user.username,

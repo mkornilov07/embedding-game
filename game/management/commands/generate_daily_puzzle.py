@@ -11,13 +11,13 @@ records a non-zero exit.
 """
 import time
 import traceback
+from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, connection, transaction
 from django.utils import timezone
 
 from game.generators import (
-    DEFAULT_MODEL,
     generate_curated_word_sums,
     generate_word_sums,
 )
@@ -45,6 +45,18 @@ class Command(BaseCommand):
 
         if Puzzle.objects.filter(is_daily=True, created_at__date=today).exists():
             self.stdout.write(f"Daily puzzle for {today} already exists; nothing to do.")
+            return
+
+        previous_day = today - timedelta(days=1)
+        previous_puzzle = (
+            Puzzle.objects.filter(is_daily=True, created_at__date=previous_day)
+            .order_by("-created_at")
+            .first()
+        )
+        if previous_puzzle and not previous_puzzle.solved:
+            self.stdout.write(
+                f"Daily puzzle for {previous_day} was not solved; skipping {today}."
+            )
             return
 
         model_combos = self._safe_generate_model(MODEL_COUNT)
@@ -111,7 +123,7 @@ class Command(BaseCommand):
         if count <= 0:
             return []
         try:
-            combos = generate_word_sums(count=count, model_name=DEFAULT_MODEL) or []
+            combos = generate_word_sums(count=count) or []
         except Exception:
             self.stderr.write(
                 f"Model generator raised; falling back to curated.\n"

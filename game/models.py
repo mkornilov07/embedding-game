@@ -9,11 +9,32 @@ class Puzzle(models.Model):
     )
     for_duel = models.BooleanField(default=False)
     is_daily = models.BooleanField(default=False)
+    solved = models.BooleanField(default=False)
     pinned = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     def __str__(self):
         return self.name
+
+
+class GenerationDefaults(models.Model):
+    """The active defaults used by embedding-based word-sum generation."""
+
+    key = models.CharField(max_length=32, unique=True, default="default")
+    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en")
+    related_pairs = models.BooleanField(default=True)
+    cosmul = models.BooleanField(default=True)
+    abtt = models.BooleanField(default=True)
+    top_n_vocab = models.PositiveIntegerField(default=3000)
+    refine_iterations = models.PositiveIntegerField(default=1)
+    min_similarity = models.FloatField(default=0.25)
+    min_refined_similarity = models.FloatField(default=0.5)
+    min_gap_ratio = models.FloatField(default=1.0)
+    max_synonym_similarity = models.FloatField(default=0.45)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Generation defaults ({self.model_name})"
 
 
 class WordCombination(models.Model):
@@ -35,13 +56,38 @@ class WordSum(WordCombination):
 class PuzzleCompletion(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="completions")
     puzzle = models.ForeignKey(Puzzle, on_delete=models.CASCADE, related_name="completions")
-    completed_at = models.DateTimeField(auto_now_add=True)
+    first_opened_at = models.DateTimeField(null=True, blank=True)
+    first_solved_at = models.DateTimeField(null=True, blank=True)
+    used_hints = models.BooleanField(default=False)
+    # Kept for compatibility with existing completion data.
+    completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ("user", "puzzle")
 
     def __str__(self):
         return f"{self.user} completed {self.puzzle}"
+
+
+class CalibrationRound(models.Model):
+    calibrator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    parameters_before = models.JSONField()
+    noise_stdev = models.FloatField(default=0.1)
+    learning_rate = models.FloatField(default=0.1)
+    noise_vectors = models.JSONField()
+    candidates = models.JSONField()
+    selected_index = models.PositiveIntegerField(null=True, blank=True)
+    parameters_after = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    selected_at = models.DateTimeField(null=True, blank=True)
+
+
+class CalibrationClick(models.Model):
+    round = models.ForeignKey(CalibrationRound, on_delete=models.CASCADE, related_name="clicks")
+    event = models.CharField(max_length=64)
+    candidate_index = models.PositiveIntegerField(null=True, blank=True)
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Duel(models.Model):
