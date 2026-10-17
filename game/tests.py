@@ -5,7 +5,7 @@ from unittest.mock import patch
 import numpy as np
 from gensim.models import KeyedVectors
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -18,6 +18,16 @@ from .generators import (
     generate_word_chain, validate_word_chain,
 )
 from .services import board_context, check_row, mark_puzzle_completed, record_solved_row
+from build_models import filter_words
+
+
+class VocabularyFilteringTests(SimpleTestCase):
+    @patch("build_models.nltk.pos_tag_sents")
+    def test_words_are_tagged_individually(self, tag_sents):
+        tag_sents.return_value = [[("fish", "NN")], [("scale", "NN")]]
+
+        self.assertEqual(filter_words(["fish", "scale"]), ["fish", "scale"])
+        tag_sents.assert_called_once_with([["fish"], ["scale"]])
 
 
 class RowCheckingTests(TestCase):
