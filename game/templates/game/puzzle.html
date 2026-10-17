@@ -66,8 +66,8 @@
       </div>
     </div>
     <ol class="howto-steps">
-      <li><strong>Drag or click</strong> word bubbles into the equation slots.</li>
-      <li>Build word sums &mdash; <em>two ideas</em> that combine into <em>a third</em>.</li>
+      <li><strong>Drag or click</strong> word bubbles into empty slots, or type a word where prompted.</li>
+      <li>Complete word sums or chains: neighboring words should be similar, but words farther apart should differ.</li>
       <li>Solve every row to win.</li>
     </ol>
     <p class="howto-account">
@@ -114,7 +114,7 @@
     if (toggleEl.checked) {
       updateAllFilledHint({ board, solved, expected: combinations.length });
     } else {
-      document.querySelectorAll(".drop-box").forEach(b => b.classList.remove("slot-yellow"));
+      document.querySelectorAll(".drop-box, .chain-type-input").forEach(b => b.classList.remove("slot-yellow"));
     }
   }
 
@@ -193,5 +193,7 @@
   document.getElementById("howto-close")?.addEventListener("click", dismissHowto);
   // Click on the backdrop (but not the card) also dismisses.
   howto?.addEventListener("click", e => { if (e.target === howto) dismissHowto(); });
+
+  if (combinations.length && board.allRowsFilled()) submitFinal();
 </script>
 {% endblock %}

@@ -11,7 +11,7 @@
 <body>
 {% if user.is_authenticated %}
 <div class="nav">
-  {% if user.is_staff %}<a href="{% url 'calibration' %}">Calibrate</a>{% endif %}
+  {% if user.is_staff %}<a href="{% url 'debug_tools' %}">Debug Tools</a>{% endif %}
   <span>{{ user.username }}</span>
   <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Log Out</button></form>
 </div>

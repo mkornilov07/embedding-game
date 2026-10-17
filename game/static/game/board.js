@@ -1,11 +1,11 @@
-/* Shared word-puzzle board: renders a word bank + equation rows with drag/drop.
+/* Shared word-puzzle board: renders a word bank and combination rows.
  *
  * Usage:
  *   const board = createBoard({
  *     bankEl:        <div>,     // container for word bubbles
- *     boardEl:       <div>,     // container for equation rows (new rows appended)
+ *     boardEl:       <div>,     // container for combination rows (new rows appended)
  *     words:         [{text, combo}, ...],
- *     combinations:  [{id, type}, ...],   // only 'word_sum' (3 slots) for now
+ *     combinations:  [{id, type, slots}, ...],
  *     onRowChanged:  (comboIdx) => {},    // fired after anything in that row changes
  *   });
  *
@@ -27,6 +27,7 @@
   function createBoard({ bankEl, boardEl, words, combinations, onRowChanged }) {
     let dragIndex = null;
     let dragSourceBox = null;
+    boardEl.classList.toggle("board-has-chains", combinations.some(combo => combo.type === "word_chain"));
 
     words.forEach((word, i) => {
       const el = document.createElement("div");
@@ -42,7 +43,7 @@
 
     combinations.forEach((combo, i) => {
       const row = document.createElement("div");
-      row.className = "equation";
+      row.className = `equation${combo.type === "word_chain" ? " word-chain-board" : ""}`;
       row.dataset.combo = i;
       if (combo.type === "word_sum") {
         row.append(
@@ -52,6 +53,19 @@
           makeOperator("="),
           makeDropBox(i, 2),
         );
+      } else if (combo.type === "word_chain") {
+        combo.slots.forEach((slot, slotIndex) => {
+          if (slot.kind === "prefilled") row.appendChild(makeFixedSlot(i, slotIndex, slot.word));
+          else if (slot.kind === "typed") row.appendChild(makeTypedSlot(i, slotIndex));
+          else row.appendChild(makeDropBox(i, slotIndex));
+          if (slotIndex < combo.slots.length - 1) {
+            const link = makeOperator("→");
+            link.classList.add("chain-link");
+            link.dataset.combo = i;
+            link.dataset.link = slotIndex;
+            row.appendChild(link);
+          }
+        });
       }
       boardEl.appendChild(row);
     });
@@ -75,9 +89,10 @@
 
     function makeDropBox(comboIdx, slot) {
       const box = document.createElement("div");
-      box.className = "drop-box";
+      box.className = "drop-box combo-slot";
       box.dataset.combo = comboIdx;
       box.dataset.slot = slot;
+      box.dataset.kind = "draggable";
       box.draggable = true;
       box.addEventListener("dragstart", onBoxDragStart);
       box.addEventListener("dragend", onBoxDragEnd);
@@ -86,6 +101,33 @@
       box.addEventListener("drop", onDrop);
       box.addEventListener("click", onBoxClick);
       return box;
+    }
+
+    function makeFixedSlot(comboIdx, slot, word) {
+      const box = document.createElement("div");
+      box.className = "combo-slot chain-fixed filled";
+      box.dataset.combo = comboIdx;
+      box.dataset.slot = slot;
+      box.dataset.kind = "prefilled";
+      box.textContent = word;
+      return box;
+    }
+
+    function makeTypedSlot(comboIdx, slot) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "combo-slot chain-type-input";
+      input.placeholder = "type a word";
+      input.autocomplete = "off";
+      input.autocapitalize = "none";
+      input.dataset.combo = comboIdx;
+      input.dataset.slot = slot;
+      input.dataset.kind = "typed";
+      input.addEventListener("input", () => {
+        input.classList.toggle("filled", Boolean(input.value.trim()));
+        fire(input.dataset.combo);
+      });
+      return input;
     }
 
     function onBubbleDragStart(e) {
@@ -185,18 +227,34 @@
 
     return {
       boxes(comboIdx) {
-        return boardEl.querySelectorAll(`.drop-box[data-combo="${comboIdx}"]`);
+        return boardEl.querySelectorAll(`.combo-slot[data-combo="${comboIdx}"]`);
+      },
+      links(comboIdx) {
+        return boardEl.querySelectorAll(`.chain-link[data-combo="${comboIdx}"]`);
+      },
+      combination(comboIdx) {
+        return combinations[parseInt(comboIdx)];
       },
       isRowFilled(comboIdx) {
-        return Array.from(this.boxes(comboIdx))
-          .every(b => b.dataset.wordIndex !== undefined);
+        return Array.from(this.boxes(comboIdx)).every(slot => {
+          if (slot.dataset.kind === "draggable") return slot.dataset.wordIndex !== undefined;
+          if (slot.dataset.kind === "typed") return Boolean(slot.value.trim());
+          return true;
+        });
       },
       rowWords(comboIdx) {
-        return Array.from(this.boxes(comboIdx))
-          .map(b => words[parseInt(b.dataset.wordIndex)].text);
+        return Array.from(this.boxes(comboIdx)).map(slot => {
+          if (slot.dataset.kind === "prefilled") return slot.textContent;
+          if (slot.dataset.kind === "typed") return slot.value.trim();
+          return words[parseInt(slot.dataset.wordIndex)].text;
+        });
       },
       allRowsFilled() {
-        return boardEl.querySelectorAll(".drop-box:not(.filled)").length === 0;
+        return Array.from(boardEl.querySelectorAll(".combo-slot")).every(slot => {
+          if (slot.dataset.kind === "draggable") return slot.dataset.wordIndex !== undefined;
+          if (slot.dataset.kind === "typed") return Boolean(slot.value.trim());
+          return true;
+        });
       },
       eachCombo(fn) {
         combinations.forEach((_, i) => fn(String(i)));
@@ -285,7 +343,8 @@
   /* Reset a single row's slot styling and unmark it from the solved group.
    * Call at the start of any row change to wipe stale check feedback. */
   function clearRowVisuals({ board, solved, comboIdx }) {
-    board.boxes(comboIdx).forEach(b => b.classList.remove(...SLOT_FEEDBACK_CLASSES));
+    board.boxes(comboIdx).forEach(slot => slot.classList.remove(...SLOT_FEEDBACK_CLASSES));
+    board.links(comboIdx).forEach(link => link.classList.remove("chain-link-wrong"));
     solved.markUnsolved(comboIdx);
   }
 
@@ -300,21 +359,29 @@
   async function checkRowAndStyle({ url, csrfToken, board, solved, comboIdx }) {
     const slotWords = board.rowWords(comboIdx);
     const boxes = board.boxes(comboIdx);
+    const combo = board.combination(comboIdx);
     const r = await fetch(url, {
       method: "POST",
       headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
-      body: JSON.stringify({ words: slotWords }),
+      body: JSON.stringify({ combination_id: combo.id, words: slotWords }),
     });
     const data = await r.json();
+    if (!board.isRowFilled(comboIdx) || board.rowWords(comboIdx).some(
+      (word, index) => word !== slotWords[index]
+    )) return false;
     const greenSet = new Set(data.green_slots || []);
     const yellowSet = new Set(data.yellow_slots || []);
+    const invalidLinks = new Set(data.invalid_links || []);
     boxes.forEach((box, slotIdx) => {
       box.classList.remove(...SLOT_FEEDBACK_CLASSES);
       if (greenSet.has(slotIdx)) box.classList.add("slot-correct");
       else if (yellowSet.has(slotIdx)) box.classList.add("slot-shuffled");
       else box.classList.add("slot-wrong");
     });
-    const correct = greenSet.size === 3;
+    board.links(comboIdx).forEach((link, linkIdx) => {
+      link.classList.toggle("chain-link-wrong", invalidLinks.has(linkIdx));
+    });
+    const correct = greenSet.size === boxes.length;
     if (correct) solved.markSolved(comboIdx);
     else solved.markUnsolved(comboIdx);
     return correct;
@@ -327,8 +394,9 @@
     const allFilled = board.allRowsFilled();
     const allDone = solved.count() >= expected;
     const hint = allFilled && !allDone;
-    document.querySelectorAll(".drop-box").forEach(b => {
-      b.classList.toggle("slot-yellow", hint && !b.classList.contains("slot-correct"));
+    document.querySelectorAll(".drop-box, .chain-type-input").forEach(b => {
+      b.classList.toggle("slot-yellow", hint && !b.classList.contains("slot-correct")
+        && !b.classList.contains("slot-wrong"));
     });
   }
 

@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model, login
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,8 +13,14 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .generators import available_local_models, generate_curated_word_sums, generate_word_sums
-from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordSum
+from .generators import (
+    WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL,
+    WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+    WORD_CHAIN_MIN_SIMILARITY, WORD_CHAIN_MODEL, WORD_CHAIN_START_PERCENT,
+    available_local_models, generate_curated_word_sums, generate_word_chain,
+    generate_word_sums, validate_word_chain,
+)
+from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordChain, WordChainSlot, WordSum
 from . import services
 from . import calibration
 
@@ -110,16 +117,34 @@ def puzzle(request, pk):
 def check_puzzle(request, pk):
     p = get_object_or_404(Puzzle, pk=pk)
     data = json.loads(request.body)
-
-    unmatched = set(services.puzzle_word_sums(p))
-    for entry in data:
-        slot_words = entry["words"]
-        key = (frozenset(slot_words[:2]), slot_words[2])
-        if key not in unmatched:
-            return JsonResponse({"correct": False})
-        unmatched.remove(key)
-
-    correct = not unmatched
+    entries = {entry.get("id"): entry.get("words", []) for entry in data}
+    combinations = services.puzzle_combinations(p)
+    correct = len(entries) == len(data) == len(combinations)
+    unmatched_sums = []
+    for combination in combinations:
+        try:
+            word_sum = combination.wordsum
+        except WordSum.DoesNotExist:
+            if combination.pk not in entries or not services.combination_is_solved(
+                combination, entries[combination.pk],
+            ):
+                correct = False
+        else:
+            unmatched_sums.append((
+                frozenset((word_sum.addend1, word_sum.addend2)), word_sum.sum_word,
+            ))
+    for combination in combinations:
+        try:
+            combination.wordsum
+        except WordSum.DoesNotExist:
+            continue
+        slot_words = entries.get(combination.pk, [])
+        key = (frozenset(slot_words[:2]), slot_words[2]) if len(slot_words) == 3 else None
+        if key not in unmatched_sums:
+            correct = False
+        else:
+            unmatched_sums.remove(key)
+    correct = correct and not unmatched_sums
     if correct:
         services.mark_puzzle_completed(request.user, p)
     return JsonResponse({"correct": correct})
@@ -130,8 +155,27 @@ def check_row(request, pk):
     p = get_object_or_404(Puzzle, pk=pk)
     data = json.loads(request.body)
     services.record_hint_used(request.user, p)
-    green, yellow = services.check_row(services.puzzle_word_sums(p), data["words"])
-    return JsonResponse({"green_slots": green, "yellow_slots": yellow})
+    slot_words = data.get("words", [])
+    if not isinstance(slot_words, list):
+        return JsonResponse({"error": "Invalid row."}, status=400)
+    combination_id = data.get("combination_id")
+    if combination_id is None:
+        green, yellow = services.check_word_sum_row(services.puzzle_word_sums(p), slot_words)
+        invalid_links = []
+    else:
+        combination = get_object_or_404(p.combinations, pk=combination_id)
+        try:
+            chain = combination.wordchain
+        except WordChain.DoesNotExist:
+            green, yellow = services.check_word_sum_row(services.puzzle_word_sums(p), slot_words)
+            invalid_links = []
+        else:
+            green, yellow, invalid_links = services.check_word_chain(chain, slot_words)
+    return JsonResponse({
+        "green_slots": green,
+        "yellow_slots": yellow,
+        "invalid_links": invalid_links,
+    })
 
 
 def puzzle_leaderboard(request, pk):
@@ -181,35 +225,91 @@ def _editable_puzzle_or_404(request, pk):
 
 @login_required
 def create_puzzle(request, pk=None):
+    defaults = calibration.get_defaults()
+    models = available_local_models()
+    models.setdefault(defaults.model_name, defaults.model_name)
     existing = None
-    word_sums = []
+    initial_combinations = []
     if pk is not None:
         existing = _editable_puzzle_or_404(request, pk)
-        for combo in existing.combinations.all():
+        for combo in services.puzzle_combinations(existing):
             try:
                 ws = combo.wordsum
             except WordSum.DoesNotExist:
-                continue
-            word_sums.append({
-                "addend1": ws.addend1, "addend2": ws.addend2, "sum_word": ws.sum_word,
-            })
+                chain = services.word_chain_for(combo)
+                if chain is not None:
+                    initial_combinations.append({
+                        "type": "word_chain",
+                        "words": [
+                            {"word": slot.word, "kind": slot.kind}
+                            for slot in chain.slots.all()
+                        ],
+                    })
+            else:
+                initial_combinations.append({
+                    "type": "word_sum",
+                    "addend1": ws.addend1,
+                    "addend2": ws.addend2,
+                    "sum_word": ws.sum_word,
+                })
     return render(request, "game/create_puzzle.html", {
-        "available_models": available_local_models(),
+        "available_models": models,
+        "generation_defaults": calibration.as_dict(defaults),
         "puzzle": existing,
-        "word_sums_json": json.dumps(word_sums),
+        "combinations_json": json.dumps(initial_combinations),
+        "chain_min_similarity": WORD_CHAIN_MIN_SIMILARITY,
+        "chain_max_earlier_similarity": WORD_CHAIN_MAX_EARLIER_SIMILARITY,
     })
 
 
 @login_required
 @require_POST
+@transaction.atomic
 def save_puzzle(request):
     data = json.loads(request.body)
     name = data.get("name", "").strip()
-    word_sums = data.get("word_sums", [])
+    combinations = data.get("combinations", [])
     puzzle_id = data.get("id")
 
-    if not name or not word_sums:
-        return JsonResponse({"error": "Name and at least one word sum required."}, status=400)
+    if not name or not combinations:
+        return JsonResponse({"error": "Name and at least one word combination required."}, status=400)
+
+    normalized = []
+    try:
+        for index, combination in enumerate(combinations, start=1):
+            if combination.get("type") == "word_sum":
+                words = [
+                    combination["addend1"].strip(),
+                    combination["addend2"].strip(),
+                    combination["sum_word"].strip(),
+                ]
+                if not all(words):
+                    raise ValueError(f"Word sum {index}: fill in all three words.")
+                normalized.append(("word_sum", words))
+            elif combination.get("type") == "word_chain":
+                slots = combination.get("words", [])
+                words = [slot.get("word", "").strip() for slot in slots]
+                if len(words) < 2 or not all(words):
+                    raise ValueError(f"Word chain {index}: enter at least two words.")
+                if not validate_word_chain(words)["valid"]:
+                    raise ValueError(
+                        f"Word chain {index}: every word must be in the ConceptNet dictionary, "
+                        f"adjacent words need cosine similarity of at least {WORD_CHAIN_MIN_SIMILARITY}, "
+                        f"and nonadjacent words at most {WORD_CHAIN_MAX_EARLIER_SIMILARITY}."
+                    )
+                kinds = [slot.get("kind") for slot in slots]
+                allowed_kinds = {choice for choice, _ in WordChainSlot.KIND_CHOICES}
+                if any(kind not in allowed_kinds for kind in kinds):
+                    raise ValueError(f"Word chain {index}: choose an interaction for every word.")
+                normalized.append(("word_chain", list(zip(words, kinds))))
+            else:
+                raise ValueError(f"Combination {index}: unknown type.")
+    except (KeyError, AttributeError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    except FileNotFoundError:
+        return JsonResponse({
+            "error": "Missing data/conceptnet-numberbatch-en-10k-abtt.kv."
+        }, status=400)
 
     if puzzle_id is not None:
         puzzle = _editable_puzzle_or_404(request, puzzle_id)
@@ -218,15 +318,37 @@ def save_puzzle(request):
         puzzle.combinations.all().delete()
     else:
         puzzle = Puzzle.objects.create(name=name, created_by=request.user)
-    for ws in word_sums:
-        WordSum.objects.create(
-            puzzle=puzzle,
-            addend1=ws["addend1"].strip(),
-            addend2=ws["addend2"].strip(),
-            sum_word=ws["sum_word"].strip(),
-        )
+    for combination_type, words in normalized:
+        if combination_type == "word_sum":
+            WordSum.objects.create(
+                puzzle=puzzle,
+                addend1=words[0],
+                addend2=words[1],
+                sum_word=words[2],
+            )
+            continue
+        chain = WordChain.objects.create(puzzle=puzzle)
+        WordChainSlot.objects.bulk_create([
+            WordChainSlot(chain=chain, position=position, word=word, kind=kind)
+            for position, (word, kind) in enumerate(words)
+        ])
 
     return JsonResponse({"id": puzzle.pk})
+
+
+@login_required
+@require_POST
+def validate_word_chain_view(request):
+    try:
+        words = json.loads(request.body).get("words", [])
+        result = validate_word_chain(words)
+        if not request.user.is_staff:
+            result.pop("similarities")
+        return JsonResponse(result)
+    except FileNotFoundError:
+        return JsonResponse({
+            "error": "Missing data/conceptnet-numberbatch-en-10k-abtt.kv."
+        }, status=400)
 
 
 @login_required
@@ -258,6 +380,9 @@ def calibration_view(request):
         "available_models": models,
         "top_vocab_options": (0, 1000, 3000, 5000, 10000),
         "refine_options": (0, 1, 2, 3),
+        "chain_min_similarity": WORD_CHAIN_MIN_SIMILARITY,
+        "chain_max_earlier_similarity": WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+        "chain_start_percent": WORD_CHAIN_START_PERCENT,
     })
 
 
@@ -271,7 +396,10 @@ def start_calibration(request):
         parameters.update({
             "model_name": data["model_name"],
             "related_pairs": bool(data["related_pairs"]),
-            "cosmul": bool(data["cosmul"]),
+            "sum_scoring_method": data.get(
+                "sum_scoring_method",
+                "cosmul" if data.get("cosmul", True) else "cosadd",
+            ),
             "abtt": bool(data["abtt"]),
             "top_n_vocab": int(data["top_n_vocab"]),
             "refine_iterations": int(data["refine_iterations"]),
@@ -326,19 +454,71 @@ def _calibration_round_payload(round_record):
 def generate_combinations(request):
     data = json.loads(request.body)
     gen_type = data.get("type", "word_sum")
-    count = min(data.get("count", 5), 5)
+    try:
+        count = max(1, min(int(data.get("count", 5)), 5))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Count must be a number from 1 to 5."}, status=400)
 
     model_name = data.get("model")
 
     related_pairs = data.get("related_pairs", True)
-    cosmul = data.get("cosmul", True)
+    sum_scoring_method = data.get("sum_scoring_method")
+    if sum_scoring_method is None and "cosmul" in data:
+        sum_scoring_method = "cosmul" if data["cosmul"] else "cosadd"
     abtt = data.get("abtt", True)
-    top_n_vocab = int(data.get("top_n_vocab") or 3000)
-    refine_iterations = int(data.get("refine_iterations") or 1)
+    top_n_vocab = int(data.get("top_n_vocab", 3000))
+    refine_iterations = int(data.get("refine_iterations", 1))
     min_similarity = data.get("min_similarity")
     min_refined_similarity = data.get("min_refined_similarity")
     min_gap_ratio = data.get("min_gap_ratio")
     max_synonym_similarity = data.get("max_synonym_similarity")
+
+    if gen_type == "word_chain":
+        if any(key in data for key in (
+            "min_previous_similarity", "max_earlier_similarity", "vocabulary", "start_percent",
+        )) and not request.user.is_staff:
+            return JsonResponse({"error": "Admins only."}, status=403)
+        try:
+            vocabulary = data.get("vocabulary", "standard")
+            model_name = {
+                "standard": WORD_CHAIN_MODEL,
+                "3k": WORD_CHAIN_3K_MODEL,
+                "10k": WORD_CHAIN_10K_MODEL,
+                "expanded": WORD_CHAIN_EXPANDED_MODEL,
+            }.get(vocabulary)
+            if model_name is None:
+                raise ValueError("Unknown word-chain vocabulary.")
+            chain_length = int(data.get("length", 5))
+            if chain_length < 2:
+                raise ValueError("A word chain must contain at least two words.")
+            chain = generate_word_chain(
+                chain_length,
+                min_previous_similarity=data.get(
+                    "min_previous_similarity", WORD_CHAIN_MIN_SIMILARITY,
+                ),
+                max_earlier_similarity=data.get(
+                    "max_earlier_similarity", WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+                ),
+                model_name=model_name,
+                start_percent=data.get("start_percent", WORD_CHAIN_START_PERCENT),
+            )
+        except (TypeError, ValueError) as error:
+            return JsonResponse({"error": str(error)}, status=400)
+        except FileNotFoundError:
+            return JsonResponse({
+                "error": f"Missing data/{model_name}-abtt.kv.",
+            }, status=400)
+        if chain is None:
+            return JsonResponse({"error": "Could not generate a chain after 10 attempts."}, status=400)
+        result = {"combinations": [{
+            "type": "word_chain",
+            "words": [{"word": word, "kind": WordChainSlot.DRAGGABLE} for word in chain],
+        }]}
+        if request.user.is_staff:
+            preview = validate_word_chain(chain, model_name=model_name)
+            puzzle_valid = validate_word_chain(chain)["valid"]
+            result.update(similarities=preview["similarities"], puzzle_valid=puzzle_valid)
+        return JsonResponse(result)
 
     if gen_type == "word_sum":
         if model_name == "curated":
@@ -346,7 +526,8 @@ def generate_combinations(request):
         else:
             kwargs = dict(
                 model_name=model_name, related_pairs=related_pairs,
-                cosmul=cosmul, abtt=abtt, top_n_vocab=top_n_vocab,
+                sum_scoring_method=sum_scoring_method,
+                abtt=abtt, top_n_vocab=top_n_vocab,
                 refine_iterations=refine_iterations,
                 min_similarity=min_similarity,
                 min_refined_similarity=min_refined_similarity,
@@ -552,20 +733,32 @@ def duel_row_solved(request, pk):
 
     data = json.loads(request.body)
     slot_words = data.get("words") or []
-    if len(slot_words) != 3:
+    combination_id = data.get("combination_id")
+    if combination_id is None:
         return JsonResponse({"error": "Invalid row."}, status=400)
-
-    word_sums = services.puzzle_word_sums(duel.puzzle)
-    green, yellow = services.check_row(word_sums, slot_words)
-    total = len(word_sums)
+    combination = get_object_or_404(duel.puzzle.combinations, pk=combination_id)
+    total = len(services.puzzle_combinations(duel.puzzle))
+    slot_count = 3
+    try:
+        chain = combination.wordchain
+    except WordChain.DoesNotExist:
+        if len(slot_words) != 3:
+            return JsonResponse({"error": "Invalid row."}, status=400)
+        green, yellow = services.check_word_sum_row(
+            services.puzzle_word_sums(duel.puzzle), slot_words,
+        )
+        invalid_links = []
+    else:
+        green, yellow, invalid_links = services.check_word_chain(chain, slot_words)
+        slot_count = chain.slots.count()
 
     progress = DuelProgress.objects.filter(duel=duel, user=request.user).first()
     my_count = progress.count if progress else 0
     finished = False
 
-    if len(green) == 3:
-        my_count, finished = services.record_solved_row(
-            duel, request.user, slot_words, word_sums,
+    if len(green) == slot_count:
+        my_count, finished = services.record_solved_combination(
+            duel, request.user, combination, slot_words, total,
         )
 
         services.send_duel_event(duel.pk, {
@@ -585,6 +778,7 @@ def duel_row_solved(request, pk):
     return JsonResponse({
         "green_slots": green,
         "yellow_slots": yellow,
+        "invalid_links": invalid_links,
         "count": my_count,
         "total": total,
         "finished": finished,

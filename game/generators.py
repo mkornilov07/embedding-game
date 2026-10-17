@@ -1,7 +1,10 @@
 import json
+import math
 import os
 import random
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from itertools import permutations
 
 import numpy as np
@@ -38,31 +41,33 @@ MIN_SIMILARITY_COSADD = 0.60
 MIN_REFINED_SIMILARITY_COSADD = 0.60
 MIN_SIMILARITY_COSMUL = 0.25
 MIN_REFINED_SIMILARITY_COSMUL = 0.5
+MIN_SIMILARITY_RAW_SUM = 0.60
+MIN_REFINED_SIMILARITY_RAW_SUM = 0.60
+DEFAULT_SUM_SCORING_METHOD = "cosmul"
+SUM_SCORING_METHODS = {
+    "cosadd": (MIN_SIMILARITY_COSADD, MIN_REFINED_SIMILARITY_COSADD),
+    "cosmul": (MIN_SIMILARITY_COSMUL, MIN_REFINED_SIMILARITY_COSMUL),
+    "raw_sum": (MIN_SIMILARITY_RAW_SUM, MIN_REFINED_SIMILARITY_RAW_SUM),
+}
+ORTHOGONALITY_TOLERANCE = 0.1
 MIN_GAP_RATIO = 1.0
 MAX_SYNONYM_SIMILARITY = 0.45
 MAX_ATTEMPTS_PER_RESULT = 300
+MAX_PARALLEL_SEARCHES = 4
 REFINE_ITERATIONS = 1
 DEFAULT_TOP_N_VOCAB = 3000
+WORD_CHAIN_3K_MODEL = "conceptnet-numberbatch-en"
+WORD_CHAIN_10K_MODEL = "conceptnet-numberbatch-en-10k"
+WORD_CHAIN_MODEL = WORD_CHAIN_10K_MODEL
+WORD_CHAIN_EXPANDED_MODEL = "conceptnet-numberbatch-en-20k"
+WORD_CHAIN_MIN_SIMILARITY = 0.47
+WORD_CHAIN_MAX_EARLIER_SIMILARITY = 0.31
+WORD_CHAIN_START_PERCENT = 20
+WORD_CHAIN_MAX_ATTEMPTS = 10
 
 _cache = {}
 _cache_lock = threading.Lock()
-
-
-def _apply_abtt(model):
-    """All-but-the-top postprocessing: subtract mean, remove top D/100 PCs.
-
-    Mu & Viswanath (2018), "All-but-the-Top", ICLR.
-    """
-    vectors = model.vectors.astype(np.float32)
-    mean = vectors.mean(axis=0)
-    centered = vectors - mean
-    n_components = max(1, vectors.shape[1] // 100)
-    _, _, vt = np.linalg.svd(centered, full_matrices=False)
-    top = vt[:n_components]
-    projection = (centered @ top.T) @ top
-    model.vectors = (centered - projection).astype(vectors.dtype)
-    if hasattr(model, "norms"):
-        model.norms = None
+_search_cache_lock = threading.Lock()
 
 
 def _load_model(model_name, abtt=False):
@@ -73,13 +78,145 @@ def _load_model(model_name, abtt=False):
     with _cache_lock:
         if key in _cache:
             return _cache[key]
-        path = os.path.join(DATA_DIR, f"{model_name}.kv")
+        filename = f"{model_name}-abtt.kv" if abtt else f"{model_name}.kv"
+        path = os.path.join(DATA_DIR, filename)
         model = KeyedVectors.load(path)
-        if abtt:
-            _apply_abtt(model)
+        model.fill_norms()
+        model._normalized_vectors = np.divide(
+            model.vectors,
+            model.norms[:, None],
+            out=np.zeros_like(model.vectors, dtype=np.float32),
+            where=model.norms[:, None] != 0,
+        )
+        model._sum_searchers = {}
         vocab = list(model.index_to_key)
         _cache[key] = (model, vocab)
         return model, vocab
+
+
+def validate_word_chain(words, model_name=WORD_CHAIN_MODEL):
+    """Check vocabulary, adjacent minimums, and nonadjacent maximums."""
+    model, _ = _load_model(model_name, abtt=True)
+    words = list(words)
+    unknown = {
+        index for index, word in enumerate(words)
+        if not isinstance(word, str) or word not in model.key_to_index
+    }
+    invalid = set(unknown)
+    similarities = []
+
+    for index, (first, second) in enumerate(zip(words, words[1:])):
+        if index in unknown or index + 1 in unknown:
+            similarities.append(None)
+            continue
+        similarity = float(model.similarity(first, second))
+        similarities.append(similarity)
+        if similarity < WORD_CHAIN_MIN_SIMILARITY:
+            invalid.update((index, index + 1))
+
+    for index, first in enumerate(words):
+        if index in unknown:
+            continue
+        for later_index in range(index + 2, len(words)):
+            if later_index in unknown:
+                continue
+            if model.similarity(first, words[later_index]) > WORD_CHAIN_MAX_EARLIER_SIMILARITY:
+                invalid.update((index, later_index))
+
+    if len(words) < 2:
+        invalid.update(range(len(words)))
+
+    return {
+        "valid": len(words) >= 2 and not invalid,
+        "invalid_slots": sorted(invalid),
+        "similarities": similarities,
+    }
+
+
+def generate_word_chain(
+    length=5,
+    min_previous_similarity=WORD_CHAIN_MIN_SIMILARITY,
+    max_earlier_similarity=WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+    model_name=WORD_CHAIN_MODEL,
+    start_percent=WORD_CHAIN_START_PERCENT,
+):
+    """Sample a chain with adjacent and non-adjacent cosine constraints."""
+    if length < 2:
+        raise ValueError("A word chain must contain at least two words.")
+    min_previous_similarity = float(min_previous_similarity)
+    max_earlier_similarity = float(max_earlier_similarity)
+    start_percent = float(start_percent)
+    if not np.isfinite(min_previous_similarity) or not -1 <= min_previous_similarity <= 1:
+        raise ValueError("Minimum previous-word similarity must be between -1 and 1.")
+    if not np.isfinite(max_earlier_similarity) or not -1 <= max_earlier_similarity <= 1:
+        raise ValueError("Maximum earlier-word similarity must be between -1 and 1.")
+    if not np.isfinite(start_percent) or not 0 < start_percent <= 100:
+        raise ValueError("Starting vocabulary percentage must be greater than 0 and at most 100.")
+
+    model, vocab = _load_model(model_name, abtt=True)
+    start_limit = math.ceil(len(vocab) * start_percent / 100)
+    if model_name in (WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL):
+        @lru_cache(maxsize=32)
+        def similarity_row(index):
+            return np.clip(model.similar_by_key(vocab[index], topn=None), -1.0, 1.0)
+
+        seeds = range(start_limit)
+    else:
+        if not hasattr(model, "_chain_similarities"):
+            vectors = model._normalized_vectors
+            similarities = np.clip(vectors @ vectors.T, -1.0, 1.0)
+            np.fill_diagonal(similarities, 1.0)
+            model._chain_similarities = similarities
+            model._chain_seeds = {}
+
+        similarities = model._chain_similarities
+        seed_key = (length, min_previous_similarity)
+        if seed_key not in model._chain_seeds:
+            eligible = (similarities >= min_previous_similarity) & (similarities < 1.0)
+            unseen = np.ones(len(vocab), dtype=bool)
+            seeds = []
+            for start in range(len(vocab)):
+                if not unseen[start]:
+                    continue
+                component = []
+                stack = [start]
+                unseen[start] = False
+                while stack:
+                    current = stack.pop()
+                    component.append(current)
+                    neighbors = np.flatnonzero(eligible[current] & unseen)
+                    unseen[neighbors] = False
+                    stack.extend(neighbors.tolist())
+                if len(component) >= length:
+                    seeds.extend(component)
+            model._chain_seeds[seed_key] = seeds
+
+        seeds = [index for index in model._chain_seeds[seed_key] if index < start_limit]
+
+        def similarity_row(index):
+            return similarities[index]
+
+    if not seeds:
+        return None
+
+    for _ in range(WORD_CHAIN_MAX_ATTEMPTS):
+        chain_indexes = [random.choice(seeds)]
+        while len(chain_indexes) < length:
+            current = chain_indexes[-1]
+            row = similarity_row(current)
+            allowed = (row >= min_previous_similarity) & (row < 1.0)
+            allowed[chain_indexes] = False
+            for earlier in chain_indexes[:-1]:
+                allowed &= similarity_row(earlier) <= max_earlier_similarity
+            options = np.flatnonzero(allowed)
+            if not len(options):
+                break
+            chain_indexes.append(random.choices(
+                options.tolist(), weights=(1.0 - row[options]).tolist(), k=1,
+            )[0])
+        if len(chain_indexes) == length:
+            return [vocab[index] for index in chain_indexes]
+    return None
 
 
 def _sum_vector_similarity(model, addend_words, target_word):
@@ -134,11 +271,113 @@ def _refine_triple(model, a, b, c, similar, iterations, max_synonym_similarity):
     return a, b, c
 
 
-def _best_arrangement(words, similar):
-    """Try all 3 arrangements of a triple as A+B=C, return the one with the highest similarity."""
+def _similarity_search(model, method):
+    if method not in SUM_SCORING_METHODS:
+        raise ValueError(f"Unknown sum scoring method: {method}")
+
+    with _search_cache_lock:
+        searchers = getattr(model, "_sum_searchers", None)
+        if searchers is None:
+            searchers = model._sum_searchers = {}
+        if method in searchers:
+            return searchers[method]
+
+        normalized = getattr(model, "_normalized_vectors", None)
+        if normalized is None:
+            model.fill_norms()
+            normalized = model._normalized_vectors = np.divide(
+                model.vectors,
+                model.norms[:, None],
+                out=np.zeros_like(model.vectors, dtype=np.float32),
+                where=model.norms[:, None] != 0,
+            )
+
+    def score_query(positive, negative):
+        excluded = {model.key_to_index[word] for word in positive + negative}
+        if method == "cosmul":
+            scores = np.ones(len(model), dtype=np.float32)
+            for word in positive:
+                scores *= (1 + normalized @ normalized[model.key_to_index[word]]) / 2
+            negative_scores = np.ones(len(model), dtype=np.float32)
+            for word in negative:
+                negative_scores *= (1 + normalized @ normalized[model.key_to_index[word]]) / 2
+            return scores / (negative_scores + 1e-6), excluded
+
+        if method == "raw_sum":
+            query = np.zeros(model.vector_size, dtype=np.float32)
+            for word in positive:
+                query += model[word]
+            for word in negative:
+                query -= model[word]
+        else:
+            query = np.zeros(model.vector_size, dtype=np.float32)
+            for word in positive:
+                query += normalized[model.key_to_index[word]]
+            for word in negative:
+                query -= normalized[model.key_to_index[word]]
+
+        query_norm = np.linalg.norm(query)
+        if query_norm:
+            query /= query_norm
+        return normalized @ query, excluded
+
+    @lru_cache(maxsize=4096)
+    def cached_top_words(positive, negative, limit):
+        scores, excluded = score_query(positive, negative)
+        candidate_count = min(len(scores), limit + len(excluded))
+        if candidate_count == len(scores):
+            candidates = np.arange(len(scores))
+        else:
+            candidates = np.argpartition(scores, -candidate_count)[-candidate_count:]
+        candidates = candidates[np.argsort(scores[candidates])[::-1]]
+        return tuple(
+            (model.index_to_key[index], float(scores[index]))
+            for index in candidates
+            if index not in excluded
+        )[:limit]
+
+    def similar(positive=(), negative=(), topn=10):
+        if topn < 1:
+            return []
+        positive = tuple(sorted(positive))
+        negative = tuple(sorted(negative))
+        limit = max(50, topn)
+        return list(cached_top_words(positive, negative, limit)[:topn])
+
+    similar.cache_info = cached_top_words.cache_info
+    with _search_cache_lock:
+        return model._sum_searchers.setdefault(method, similar)
+
+
+def _find_orthogonal_partner(model, vocab_pool, word, prefer_related, rng=random):
+    candidate_indexes = rng.sample(range(len(vocab_pool)), min(256, len(vocab_pool)))
+    candidates = [vocab_pool[index] for index in candidate_indexes if vocab_pool[index] != word]
+    if not candidates:
+        return None
+
+    normalized = model._normalized_vectors
+    base = normalized[model.key_to_index[word]]
+    candidate_ids = [model.key_to_index[candidate] for candidate in candidates]
+    similarities = normalized[candidate_ids] @ base
+    eligible = [
+        (candidate, float(similarity))
+        for candidate, similarity in zip(candidates, similarities)
+        if abs(similarity) <= ORTHOGONALITY_TOLERANCE
+    ]
+    if not eligible:
+        return None
+    if prefer_related:
+        return max(eligible, key=lambda item: item[1])[0]
+    return rng.choice(eligible)[0]
+
+
+def _best_arrangement(words, similar, model):
+    """Return the highest-scoring A+B=C arrangement with near-orthogonal addends."""
     best_addends, best_sum, best_sim = None, None, -1
     for a, b, c in permutations(words, 3):
         if a > b:
+            continue
+        if abs(model.similarity(a, b)) > ORTHOGONALITY_TOLERANCE:
             continue
         top_word, sim = similar(positive=[a, b], topn=1)[0]
         if top_word == c and sim > best_sim:
@@ -146,8 +385,51 @@ def _best_arrangement(words, similar):
     return best_addends, best_sum, best_sim
 
 
+def _try_word_sum(model, vocab_pool, similar, parameters, rng):
+    w1 = rng.choice(vocab_pool)
+    w2 = _find_orthogonal_partner(
+        model, vocab_pool, w1, parameters["related_pairs"], rng,
+    )
+    if w2 is None:
+        return None
+
+    top = similar(positive=[w1, w2], topn=2)
+    if len(top) < 2 or any(word in (w1, w2) for word, _ in top):
+        return None
+
+    w3, best_score = top[0]
+    runner_up_score = top[1][1]
+    if (best_score < parameters["min_similarity"]
+            or best_score < runner_up_score * parameters["min_gap_ratio"]):
+        return None
+    if _any_pair_too_similar(
+        model, (w1, w2, w3), parameters["max_synonym_similarity"],
+    ):
+        return None
+
+    refined = _refine_triple(
+        model, w1, w2, w3, similar,
+        parameters["refine_iterations"], parameters["max_synonym_similarity"],
+    )
+    if refined is None:
+        return None
+
+    addends, sum_word, score = _best_arrangement(refined, similar, model)
+    if addends is None or score < parameters["min_refined_similarity"]:
+        return None
+
+    return {
+        "type": "word_sum",
+        "addend1": addends[0],
+        "addend2": addends[1],
+        "sum_word": sum_word,
+        "addend_similarity": float(model.similarity(*addends)),
+        "sum_similarity": _sum_vector_similarity(model, addends, sum_word),
+    }
+
+
 def generate_word_sums(count=5, model_name=None, related_pairs=None,
-                        cosmul=None, abtt=None, top_n_vocab=None,
+                        sum_scoring_method=None, cosmul=None, abtt=None, top_n_vocab=None,
                         refine_iterations=None,
                         min_similarity=None,
                         min_refined_similarity=None,
@@ -157,14 +439,15 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
     """Generate word sums using vector arithmetic.
 
     Args:
-        cosmul: if True, use 3CosMul (Levy & Goldberg 2014) instead of 3CosAdd.
+        sum_scoring_method: one of ``cosadd``, ``cosmul``, or ``raw_sum``.
+        cosmul: deprecated compatibility option; selects ``cosmul`` or ``cosadd``.
         abtt: if True, postprocess embeddings via all-but-the-top
               (Mu & Viswanath 2018) — subtract mean, remove top D/100 PCs.
         top_n_vocab: restrict seed vocabulary to the top-N most frequent tokens.
                      KeyedVectors are ordered by frequency; this avoids
                      long-tail noise. Pass 0 to disable.
-        related_pairs: if True, sample w2 from w1's neighborhood (~10th most
-                       similar) rather than uniformly at random.
+        related_pairs: if True, prefer the most similar sampled addend that
+                       still satisfies the near-orthogonality constraint.
         refine_iterations: number of substitution passes in _refine_triple.
         min_similarity: lower bound on raw top similarity during sampling.
                         Defaults to the cosmul/cosadd constant based on mode.
@@ -173,8 +456,11 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
         min_gap_ratio: top similarity must exceed runner-up by this factor.
         max_synonym_similarity: reject triples where any pair exceeds this.
     """
+    if sum_scoring_method is None and cosmul is not None:
+        sum_scoring_method = "cosmul" if cosmul else "cosadd"
+
     if any(value is None for value in (
-        model_name, related_pairs, cosmul, abtt, top_n_vocab,
+        model_name, related_pairs, sum_scoring_method, abtt, top_n_vocab,
         refine_iterations, min_similarity, min_refined_similarity,
         min_gap_ratio, max_synonym_similarity,
     )):
@@ -186,7 +472,7 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
         if defaults:
             model_name = defaults.model_name if model_name is None else model_name
             related_pairs = defaults.related_pairs if related_pairs is None else related_pairs
-            cosmul = defaults.cosmul if cosmul is None else cosmul
+            sum_scoring_method = defaults.sum_scoring_method if sum_scoring_method is None else sum_scoring_method
             abtt = defaults.abtt if abtt is None else abtt
             top_n_vocab = defaults.top_n_vocab if top_n_vocab is None else top_n_vocab
             refine_iterations = defaults.refine_iterations if refine_iterations is None else refine_iterations
@@ -197,7 +483,10 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
 
     model_name = model_name or DEFAULT_MODEL
     related_pairs = True if related_pairs is None else related_pairs
-    cosmul = True if cosmul is None else cosmul
+    if sum_scoring_method is None:
+        sum_scoring_method = "cosmul" if cosmul is None or cosmul else "cosadd"
+    if sum_scoring_method not in SUM_SCORING_METHODS:
+        raise ValueError(f"Unknown sum scoring method: {sum_scoring_method}")
     abtt = True if abtt is None else abtt
     top_n_vocab = DEFAULT_TOP_N_VOCAB if top_n_vocab is None else top_n_vocab
     refine_iterations = REFINE_ITERATIONS if refine_iterations is None else refine_iterations
@@ -207,67 +496,55 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
     model, vocab = _load_model(model_name, abtt=abtt)
     vocab_pool = vocab[:top_n_vocab] if top_n_vocab and top_n_vocab > 0 else vocab
 
-    similar = model.most_similar_cosmul if cosmul else model.most_similar
+    similar = _similarity_search(model, sum_scoring_method)
+    default_min_similarity, default_min_refined_similarity = SUM_SCORING_METHODS[sum_scoring_method]
     if min_similarity is None:
-        min_similarity = MIN_SIMILARITY_COSMUL if cosmul else MIN_SIMILARITY_COSADD
+        min_similarity = default_min_similarity
     if min_refined_similarity is None:
-        min_refined_similarity = MIN_REFINED_SIMILARITY_COSMUL if cosmul else MIN_REFINED_SIMILARITY_COSADD
+        min_refined_similarity = default_min_refined_similarity
+
+    parameters = {
+        "related_pairs": related_pairs,
+        "refine_iterations": refine_iterations,
+        "min_similarity": min_similarity,
+        "min_refined_similarity": min_refined_similarity,
+        "min_gap_ratio": min_gap_ratio,
+        "max_synonym_similarity": max_synonym_similarity,
+    }
+
+    def try_seed(seed):
+        return _try_word_sum(
+            model, vocab_pool, similar, parameters, random.Random(seed),
+        )
 
     results = []
     seen = set()
+    attempts_remaining = max(0, count * max_attempts_per_result)
+    workers = min(MAX_PARALLEL_SEARCHES, max(1, count))
 
-    for _ in range(count * max_attempts_per_result):
-        if len(results) >= count:
-            break
-
-        w1 = random.choice(vocab_pool)
-        if related_pairs:
-            neighbors = similar(positive=[w1], topn=50)
-            w2 = random.choice(neighbors[9:])[0]
-        else:
-            w2 = random.choice(vocab_pool)
-            if w2 == w1:
+    def accept_results(candidates):
+        for candidate in candidates:
+            if candidate is None:
                 continue
-        top = similar(positive=[w1, w2], topn=2)
+            key = frozenset((candidate["addend1"], candidate["addend2"], candidate["sum_word"]))
+            if key not in seen:
+                seen.add(key)
+                results.append(candidate)
+                if len(results) == count:
+                    break
 
-        if any(w in (w1, w2) for w, _ in top):
-            continue
-
-        w3, sim1 = top[0]
-        sim2 = top[1][1]
-
-        if sim1 < min_similarity or sim1 < sim2 * min_gap_ratio:
-            continue
-
-        if _any_pair_too_similar(model, (w1, w2, w3), max_synonym_similarity):
-            continue
-
-        refined = _refine_triple(model, w1, w2, w3, similar,
-                                  refine_iterations, max_synonym_similarity)
-        if refined is None:
-            continue
-        w1, w2, w3 = refined
-
-        triple = frozenset({w1, w2, w3})
-        if triple in seen:
-            continue
-        seen.add(triple)
-
-        addends, sum_word, best_sim = _best_arrangement((w1, w2, w3), similar)
-        if addends is None or best_sim < min_refined_similarity:
-            continue
-
-        addend_sim = float(model.similarity(addends[0], addends[1]))
-        sum_sim = _sum_vector_similarity(model, addends, sum_word)
-
-        results.append({
-            "type": "word_sum",
-            "addend1": addends[0],
-            "addend2": addends[1],
-            "sum_word": sum_word,
-            "addend_similarity": addend_sim,
-            "sum_similarity": sum_sim,
-        })
+    if workers == 1:
+        while attempts_remaining and len(results) < count:
+            candidate = try_seed(random.getrandbits(64))
+            attempts_remaining -= 1
+            accept_results([candidate])
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            while attempts_remaining and len(results) < count:
+                batch_size = min(workers, attempts_remaining)
+                seeds = [random.getrandbits(64) for _ in range(batch_size)]
+                accept_results(executor.map(try_seed, seeds))
+                attempts_remaining -= batch_size
 
     return results
 

@@ -10,6 +10,7 @@ from django.utils import timezone
 from .generators import (
     DEFAULT_MODEL,
     DEFAULT_TOP_N_VOCAB,
+    DEFAULT_SUM_SCORING_METHOD,
     MAX_SYNONYM_SIMILARITY,
     MIN_GAP_RATIO,
     MIN_REFINED_SIMILARITY_COSMUL,
@@ -37,6 +38,7 @@ def get_defaults():
         key="default",
         defaults={
             "model_name": DEFAULT_MODEL,
+            "sum_scoring_method": DEFAULT_SUM_SCORING_METHOD,
             "top_n_vocab": DEFAULT_TOP_N_VOCAB,
             "refine_iterations": REFINE_ITERATIONS,
             "min_similarity": MIN_SIMILARITY_COSMUL,
@@ -52,7 +54,7 @@ def as_dict(defaults):
     return {
         field: getattr(defaults, field)
         for field in (
-            "model_name", "related_pairs", "cosmul", "abtt", "top_n_vocab",
+            "model_name", "related_pairs", "sum_scoring_method", "abtt", "top_n_vocab",
             "refine_iterations", *CONTINUOUS_PARAMETERS,
         )
     }

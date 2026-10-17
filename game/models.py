@@ -23,7 +23,15 @@ class GenerationDefaults(models.Model):
     key = models.CharField(max_length=32, unique=True, default="default")
     model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en")
     related_pairs = models.BooleanField(default=True)
-    cosmul = models.BooleanField(default=True)
+    sum_scoring_method = models.CharField(
+        max_length=16,
+        choices=[
+            ("cosadd", "3CosAdd"),
+            ("cosmul", "3CosMul"),
+            ("raw_sum", "Raw vector sum cosine"),
+        ],
+        default="cosmul",
+    )
     abtt = models.BooleanField(default=True)
     top_n_vocab = models.PositiveIntegerField(default=3000)
     refine_iterations = models.PositiveIntegerField(default=1)
@@ -51,6 +59,34 @@ class WordSum(WordCombination):
 
     def __str__(self):
         return f"{self.addend1} + {self.addend2} = {self.sum_word}"
+
+
+class WordChain(WordCombination):
+    def __str__(self):
+        return f"Word chain #{self.pk}"
+
+
+class WordChainSlot(models.Model):
+    PREFILLED = "prefilled"
+    DRAGGABLE = "draggable"
+    TYPED = "typed"
+    KIND_CHOICES = [
+        (PREFILLED, "Pre-filled"),
+        (DRAGGABLE, "Drag and drop"),
+        (TYPED, "Type"),
+    ]
+
+    chain = models.ForeignKey(WordChain, on_delete=models.CASCADE, related_name="slots")
+    position = models.PositiveIntegerField()
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES)
+    word = models.CharField(max_length=100)
+
+    class Meta:
+        ordering = ["position"]
+        unique_together = ("chain", "position")
+
+    def __str__(self):
+        return self.word
 
 
 class PuzzleCompletion(models.Model):
@@ -127,7 +163,7 @@ class Duel(models.Model):
 class DuelProgress(models.Model):
     duel = models.ForeignKey(Duel, on_delete=models.CASCADE, related_name="progresses")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    # Each entry is [sorted_addends_list, sum_word]; used as a set-like dedupe key.
+    # Sum keys retain [sorted_addends, result]; chain keys are ["combination", id].
     solved_rows = models.JSONField(default=list)
 
     class Meta:

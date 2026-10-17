@@ -13,11 +13,12 @@ from django.urls import reverse
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import Duel, DuelProgress, PuzzleCompletion, WordSum
+from .generators import WORD_CHAIN_MIN_SIMILARITY, validate_word_chain
+from .models import Duel, DuelProgress, PuzzleCompletion, WordChain, WordSum
 
 
 def puzzle_word_sums(puzzle):
-    """Return a puzzle's rows as ``(addends, result)`` validation keys."""
+    """Return only word-sum rows as ``(addends, result)`` validation keys."""
     rows = []
     for combination in puzzle.combinations.all():
         try:
@@ -28,9 +29,60 @@ def puzzle_word_sums(puzzle):
     return rows
 
 
+def word_chain_for(combination):
+    try:
+        return combination.wordchain
+    except WordChain.DoesNotExist:
+        return None
+
+
+def puzzle_combinations(puzzle):
+    return list(
+        puzzle.combinations.select_related("wordsum", "wordchain")
+        .prefetch_related("wordchain__slots").order_by("pk")
+    )
+
+
+def check_word_chain(chain, words):
+    """Return per-slot feedback and invalid adjacent-link indexes for a chain."""
+    slots = list(chain.slots.all())
+    if len(words) != len(slots):
+        return [], [], list(range(max(len(words), len(slots))))
+
+    result = validate_word_chain(words)
+    invalid = set(result["invalid_slots"])
+    for index, slot in enumerate(slots):
+        if slot.kind == "prefilled" and words[index] != slot.word:
+            invalid.add(index)
+
+    invalid_links = [
+        index for index, similarity in enumerate(result["similarities"])
+        if similarity is None or similarity < WORD_CHAIN_MIN_SIMILARITY
+    ]
+    return [index for index in range(len(slots)) if index not in invalid], [], invalid_links
+
+
+def combination_is_solved(combination, words):
+    """Check a submitted row according to its concrete combination type."""
+    try:
+        word_sum = combination.wordsum
+    except WordSum.DoesNotExist:
+        chain = word_chain_for(combination)
+        if chain is None:
+            return False
+        green, _, _ = check_word_chain(chain, words)
+        return len(green) == chain.slots.count()
+
+    return (
+        len(words) == 3
+        and frozenset(words[:2]) == frozenset((word_sum.addend1, word_sum.addend2))
+        and words[2] == word_sum.sum_word
+    )
+
+
 def board_context(puzzle):
     """Build the shuffled JSON payload consumed by the shared board."""
-    rows = list(puzzle.combinations.select_related("wordsum"))
+    rows = puzzle_combinations(puzzle)
     random.shuffle(rows)
 
     words = []
@@ -39,6 +91,22 @@ def board_context(puzzle):
         try:
             word_sum = row.wordsum
         except WordSum.DoesNotExist:
+            chain = word_chain_for(row)
+            if chain is None:
+                continue
+            slots = []
+            for slot_index, slot in enumerate(chain.slots.all()):
+                slots.append({
+                    "kind": slot.kind,
+                    **({"word": slot.word} if slot.kind == "prefilled" else {}),
+                })
+                if slot.kind == "draggable":
+                    words.append({
+                        "text": slot.word,
+                        "combo": len(combinations),
+                        "slot": slot_index,
+                    })
+            combinations.append({"id": row.pk, "type": "word_chain", "slots": slots})
             continue
         combo_index = len(combinations)
         words.extend([
@@ -46,14 +114,20 @@ def board_context(puzzle):
             {"text": word_sum.addend2, "combo": combo_index},
             {"text": word_sum.sum_word, "combo": combo_index},
         ])
-        combinations.append({"id": row.pk, "type": "word_sum"})
+        combinations.append({
+            "id": row.pk,
+            "type": "word_sum",
+            "slots": [{"kind": "draggable"}] * 3,
+        })
 
     random.shuffle(words)
     return json.dumps(words), json.dumps(combinations), len(combinations)
 
 
-def check_row(word_sums, slot_words):
-    """Return green and yellow slot indexes for one attempted row."""
+def check_word_sum_row(word_sums, slot_words):
+    """Return green and yellow slot indexes for a word-sum attempt."""
+    if len(slot_words) != 3:
+        return [], []
     first, second, result = slot_words
     addends = frozenset((first, second))
 
@@ -74,6 +148,39 @@ def check_row(word_sums, slot_words):
                 if slot_words[index] in valid_addends:
                     return [index, 2], []
     return [], []
+
+
+# Compatibility for callers/tests from before combinations became polymorphic.
+check_row = check_word_sum_row
+
+
+def record_solved_combination(duel, user, combination, slot_words, total):
+    """Record one solved duel combination, retaining compatibility with old sum keys."""
+    progress, _ = DuelProgress.objects.get_or_create(duel=duel, user=user)
+    try:
+        word_sum = combination.wordsum
+    except WordSum.DoesNotExist:
+        solved_key = ["combination", combination.pk]
+    else:
+        solved_key = [sorted(slot_words[:2]), slot_words[2]]
+
+    def freeze(value):
+        if isinstance(value, (list, tuple)):
+            return tuple(freeze(item) for item in value)
+        if isinstance(value, dict):
+            return tuple(sorted((key, freeze(item)) for key, item in value.items()))
+        return value
+
+    existing = {freeze(row) for row in progress.solved_rows}
+    if freeze(solved_key) not in existing:
+        progress.solved_rows.append(solved_key)
+        progress.save(update_fields=["solved_rows"])
+
+    finished = len(progress.solved_rows) >= total
+    if finished:
+        finish_duel(duel, user)
+        mark_puzzle_completed(user, duel.puzzle)
+    return len(progress.solved_rows), finished
 
 
 def mark_puzzle_completed(user, puzzle):
@@ -160,8 +267,8 @@ def finish_duel(duel, winner):
     duel.save(update_fields=["status", "winner", "completed_at"])
 
 
-def record_solved_row(duel, user, slot_words, word_sums):
-    """Persist a solved row and return ``(count, finished)``."""
+def record_solved_word_sum(duel, user, slot_words, word_sums):
+    """Persist a solved word sum and return ``(count, finished)``."""
     progress, _ = DuelProgress.objects.get_or_create(duel=duel, user=user)
     solved_key = (tuple(sorted(slot_words[:2])), slot_words[2])
     existing = {(tuple(row[0]), row[1]) for row in progress.solved_rows}
@@ -174,3 +281,6 @@ def record_solved_row(duel, user, slot_words, word_sums):
         finish_duel(duel, user)
         mark_puzzle_completed(user, duel.puzzle)
     return len(progress.solved_rows), finished
+
+
+record_solved_row = record_solved_word_sum

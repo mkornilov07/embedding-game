@@ -161,5 +161,8 @@
 
   // If the page was loaded after the duel already ended, show the result immediately.
   if (alreadyFinished) showEnd(preWinner === myUsername, preWinner);
+  else board.eachCombo(comboIdx => {
+    if (board.isRowFilled(comboIdx)) handleRowChange(comboIdx);
+  });
 </script>
 {% endblock %}

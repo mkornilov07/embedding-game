@@ -1,11 +1,13 @@
 {% extends "game/base.html" %}
 
-{% block title %}Generation calibration{% endblock %}
+{% block title %}Debug tools{% endblock %}
 
 {% block body %}
 <div class="page calibration-page">
   <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; Puzzles</a></div>
-  <h1>Generation calibration</h1>
+  <h1>Debug tools</h1>
+  <section class="debug-section">
+  <h2>Word-sum calibration</h2>
   <p class="subtitle">Choose the discrete generation settings, then select the word sum you prefer.</p>
 
   <div class="calibration-controls">
@@ -18,12 +20,16 @@
       </select>
     </div>
     <div class="field">
-      <label for="related-pairs">Related pairs</label>
+      <label for="related-pairs">Prefer higher-cosine orthogonal pairs</label>
       <select id="related-pairs"><option value="true"{% if parameters.related_pairs %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.related_pairs %} selected{% endif %}>No</option></select>
     </div>
     <div class="field">
-      <label for="cosmul">3CosMul</label>
-      <select id="cosmul"><option value="true"{% if parameters.cosmul %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.cosmul %} selected{% endif %}>No</option></select>
+      <label for="sum-scoring-method">Sum scoring</label>
+      <select id="sum-scoring-method">
+        <option value="cosmul"{% if parameters.sum_scoring_method == "cosmul" %} selected{% endif %}>3CosMul</option>
+        <option value="cosadd"{% if parameters.sum_scoring_method == "cosadd" %} selected{% endif %}>3CosAdd (normalized vectors)</option>
+        <option value="raw_sum"{% if parameters.sum_scoring_method == "raw_sum" %} selected{% endif %}>Raw-vector-sum cosine</option>
+      </select>
     </div>
     <div class="field">
       <label for="abtt">All-but-the-top</label>
@@ -55,6 +61,37 @@
   <button class="btn btn-primary" id="start-calibration">Generate candidates</button>
   <div class="error" id="calibration-error" hidden></div>
   <div class="calibration-grid" id="candidate-grid"></div>
+  </section>
+
+  <section class="debug-section">
+    <h2>Generate word sums</h2>
+    <p class="subtitle">Uses the model and discrete settings above. Previewing does not update the defaults.</p>
+    <div class="calibration-controls">
+      <div class="field"><label for="debug-sum-count">Count</label><input id="debug-sum-count" type="number" min="1" max="5" value="5" required></div>
+      <div class="field"><label for="debug-min-similarity">Minimum candidate score</label><input id="debug-min-similarity" type="number" step="any" value="{{ parameters.min_similarity }}" required></div>
+      <div class="field"><label for="debug-min-refined-similarity">Minimum refined score</label><input id="debug-min-refined-similarity" type="number" step="any" value="{{ parameters.min_refined_similarity }}" required></div>
+      <div class="field"><label for="debug-min-gap-ratio">Minimum gap ratio</label><input id="debug-min-gap-ratio" type="number" min="1" step="any" value="{{ parameters.min_gap_ratio }}" required></div>
+      <div class="field"><label for="debug-max-synonym-similarity">Maximum synonym similarity</label><input id="debug-max-synonym-similarity" type="number" min="-1" max="1" step="any" value="{{ parameters.max_synonym_similarity }}" required></div>
+    </div>
+    <button class="btn btn-ghost" id="debug-generate-sums">Generate word sums</button>
+    <div class="error" id="debug-sum-error" hidden></div>
+    <div class="debug-results" id="debug-sum-results"></div>
+  </section>
+
+  <section class="debug-section">
+    <h2>Generate word chains</h2>
+    <p class="subtitle">Uses ABTT ConceptNet. Each new word must meet the previous-word minimum and stay at or below the earlier-word maximum.</p>
+    <div class="calibration-controls">
+      <div class="field"><label for="debug-chain-vocabulary">Vocabulary</label><select id="debug-chain-vocabulary"><option value="3k">Original (3k)</option><option value="10k" selected>Current game (10k)</option><option value="expanded">Expanded (20k)</option></select></div>
+      <div class="field"><label for="debug-chain-start-percent">Starting words: top % of vocabulary</label><input id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="{{ chain_start_percent }}" required></div>
+      <div class="field"><label for="debug-chain-length">Length</label><input id="debug-chain-length" type="number" min="2" step="1" value="5" required></div>
+      <div class="field"><label for="debug-min-previous">Minimum similarity to previous word</label><input id="debug-min-previous" type="number" min="-1" max="1" step="any" value="{{ chain_min_similarity }}" required></div>
+      <div class="field"><label for="debug-max-earlier">Maximum similarity to any earlier word</label><input id="debug-max-earlier" type="number" min="-1" max="1" step="any" value="{{ chain_max_earlier_similarity }}" required></div>
+    </div>
+    <button class="btn btn-ghost" id="debug-generate-chain">Generate word chain</button>
+    <div class="error" id="debug-chain-error" hidden></div>
+    <div class="debug-results" id="debug-chain-results"></div>
+  </section>
 </div>
 {% endblock %}
 
@@ -63,6 +100,7 @@
   const csrfToken = "{{ csrf_token }}";
   const startUrl = "{% url 'start_calibration' %}";
   const selectUrl = id => `/calibrate/${id}/select/`;
+  const generateUrl = "{% url 'generate_combinations' %}";
   const currentParameters = document.getElementById("current-parameters");
   const grid = document.getElementById("candidate-grid");
   const errorEl = document.getElementById("calibration-error");
@@ -72,7 +110,7 @@
     return {
       model_name: document.getElementById("model-name").value,
       related_pairs: document.getElementById("related-pairs").value === "true",
-      cosmul: document.getElementById("cosmul").value === "true",
+      sum_scoring_method: document.getElementById("sum-scoring-method").value,
       abtt: document.getElementById("abtt").value === "true",
       top_n_vocab: parseInt(document.getElementById("top-n-vocab").value),
       refine_iterations: parseInt(document.getElementById("refine-iterations").value),
@@ -123,7 +161,7 @@
       body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || "Calibration request failed.");
+    if (!response.ok) throw new Error(data.error || "Request failed.");
     return data;
   }
 
@@ -143,5 +181,92 @@
   }
 
   startButton.addEventListener("click", startCalibration);
+
+  function readNumber(id) {
+    const input = document.getElementById(id);
+    if (!input.checkValidity()) {
+      input.reportValidity();
+      throw new Error(`Enter a valid ${input.previousElementSibling.textContent.toLowerCase()}.`);
+    }
+    return Number(input.value);
+  }
+
+  async function generatePreview(button, errorEl, resultsEl, parameters, renderResult) {
+    button.disabled = true;
+    errorEl.hidden = true;
+    resultsEl.replaceChildren();
+    try {
+      renderResult(await postJson(generateUrl, parameters()), resultsEl);
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  document.getElementById("debug-generate-sums").addEventListener("click", event => {
+    generatePreview(
+      event.currentTarget,
+      document.getElementById("debug-sum-error"),
+      document.getElementById("debug-sum-results"),
+      () => {
+        const {model_name, noise_stdev, learning_rate, ...settings} = discreteParameters();
+        return {
+          type: "word_sum", model: model_name, ...settings,
+          count: readNumber("debug-sum-count"),
+          min_similarity: readNumber("debug-min-similarity"),
+          min_refined_similarity: readNumber("debug-min-refined-similarity"),
+          min_gap_ratio: readNumber("debug-min-gap-ratio"),
+          max_synonym_similarity: readNumber("debug-max-synonym-similarity"),
+        };
+      },
+      (data, results) => {
+        for (const sum of data.combinations || []) {
+          const row = document.createElement("div");
+          row.className = "debug-result";
+          row.textContent = `${sum.addend1} + ${sum.addend2} = ${sum.sum_word}`;
+          if (sum.addend_similarity !== undefined) {
+            row.textContent += ` (addend cosine ${sum.addend_similarity.toFixed(3)}, sum cosine ${sum.sum_similarity.toFixed(3)})`;
+          }
+          results.appendChild(row);
+        }
+        if (!results.children.length) results.textContent = "No word sums generated.";
+      },
+    );
+  });
+
+  document.getElementById("debug-generate-chain").addEventListener("click", event => {
+    generatePreview(
+      event.currentTarget,
+      document.getElementById("debug-chain-error"),
+      document.getElementById("debug-chain-results"),
+      () => ({
+        type: "word_chain",
+        vocabulary: document.getElementById("debug-chain-vocabulary").value,
+        start_percent: readNumber("debug-chain-start-percent"),
+        length: readNumber("debug-chain-length"),
+        min_previous_similarity: readNumber("debug-min-previous"),
+        max_earlier_similarity: readNumber("debug-max-earlier"),
+      }),
+      (data, results) => {
+        const chain = data.combinations[0].words.map(slot => slot.word);
+        const row = document.createElement("div");
+        row.className = "debug-result";
+        row.textContent = chain.join(" → ");
+        results.appendChild(row);
+        const scores = document.createElement("div");
+        scores.className = "calibration-label";
+        scores.textContent = `Adjacent cosines: ${data.similarities.map(value => value.toFixed(3)).join(", ")}`;
+        results.appendChild(scores);
+        if (!data.puzzle_valid) {
+          const warning = document.createElement("div");
+          warning.className = "chain-validation invalid";
+          warning.textContent = "This preview cannot be used in a puzzle with the current 10k vocabulary and fixed adjacent ≥ {{ chain_min_similarity }} / nonadjacent ≤ {{ chain_max_earlier_similarity }} thresholds.";
+          results.appendChild(warning);
+        }
+      },
+    );
+  });
 </script>
 {% endblock %}

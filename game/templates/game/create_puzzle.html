@@ -14,20 +14,26 @@
     </div>
 
     <div>
-      <label>Word Sums</label>
-      <div class="word-sums-list" id="word-sums-list"></div>
+      <label>Word Combinations</label>
+      <div class="combination-list" id="combination-list"></div>
       <div class="btn-row">
         <button class="btn btn-secondary" onclick="addWordSum()">+ Add Word Sum</button>
+        <button class="btn btn-secondary" onclick="addWordChain()">+ Add Word Chain</button>
         <button class="btn btn-danger" onclick="clearAll()">Clear All</button>
       </div>
+      {% if user.is_staff %}
+      <label class="chain-debug-toggle" for="show-chain-sim">
+        <input type="checkbox" id="show-chain-sim"> Show chain similarities (debug)
+      </label>
+      {% endif %}
       <div class="gen-panel">
-        <h3>Generate</h3>
+        <h3>Generate Word Sums</h3>
         <div class="gen-field">
           <label for="model-select" title="Word embedding model used for vector arithmetic. 'Pre-generated' skips generation and samples from a curated JSON list.">Model</label>
           <select id="model-select">
-            <option value="curated">Pre-generated</option>
+            <option value="curated"{% if generation_defaults.model_name == "curated" %} selected{% endif %}>Pre-generated</option>
             {% for key, label in available_models.items %}
-              <option value="{{ key }}" {% if key == "conceptnet-numberbatch-en" %}selected{% endif %}>{{ label }}</option>
+              <option value="{{ key }}"{% if key == generation_defaults.model_name %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
@@ -43,45 +49,58 @@
               <input type="checkbox" id="show-sim">
             </div>
             <div class="gen-field" id="related-pairs-field">
-              <label for="related-pairs" title="Sample the second word from the first word's neighborhood (around the 10th most similar) instead of uniformly at random. Produces more semantically related pairs.">Related pairs</label>
-              <input type="checkbox" id="related-pairs" checked>
+              <label for="related-pairs" title="Among sampled second words with absolute cosine similarity at most 0.1, prefer the one with the highest cosine to the first addend.">Prefer higher-cosine orthogonal pairs</label>
+              <input type="checkbox" id="related-pairs"{% if generation_defaults.related_pairs %} checked{% endif %}>
             </div>
-            <div class="gen-field" id="cosmul-field">
-              <label for="cosmul" title="Use 3CosMul (Levy & Goldberg 2014, CoNLL) instead of 3CosAdd. Multiplies similarities instead of summing them, so no single cosine can dominate. Typically improves analogy accuracy.">3CosMul</label>
-              <input type="checkbox" id="cosmul" checked>
+            <div class="gen-field" id="sum-scoring-method-field">
+              <label for="sum-scoring-method" title="How candidate results are ranked for A + B = C.">Sum scoring</label>
+              <select id="sum-scoring-method">
+                <option value="cosmul"{% if generation_defaults.sum_scoring_method == "cosmul" %} selected{% endif %}>3CosMul</option>
+                <option value="cosadd"{% if generation_defaults.sum_scoring_method == "cosadd" %} selected{% endif %}>3CosAdd (normalized vectors)</option>
+                <option value="raw_sum"{% if generation_defaults.sum_scoring_method == "raw_sum" %} selected{% endif %}>Raw-vector-sum cosine</option>
+              </select>
             </div>
             <div class="gen-field" id="abtt-field">
-              <label for="abtt" title="All-but-the-top postprocessing (Mu & Viswanath 2018, ICLR): subtract the vector mean and project out the top D/100 principal components. Improves analogy and similarity tasks. Does a one-time SVD per model on first use.">All-but-the-top</label>
-              <input type="checkbox" id="abtt" checked>
+              <label for="abtt" title="Use the precomputed All-but-the-Top vectors for this model. Run build_models.py to create the sidecar vector files.">All-but-the-top</label>
+              <input type="checkbox" id="abtt"{% if generation_defaults.abtt %} checked{% endif %}>
             </div>
             <div class="gen-field" id="top-n-vocab-field">
               <label for="top-n-vocab" title="Restrict seed vocabulary to the top-N most frequent tokens. KeyedVectors are sorted by frequency; capping avoids long-tail morphological junk and rare-word noise. Set to 0 for no cap.">Vocab top-N</label>
-              <input type="number" id="top-n-vocab" value="3000" min="0" step="1000" inputmode="numeric">
+              <input type="number" id="top-n-vocab" value="{{ generation_defaults.top_n_vocab }}" min="0" step="1000" inputmode="numeric">
             </div>
             <div class="gen-field" id="refine-iters-field">
               <label for="refine-iters" title="Number of substitution passes that tighten each triple (C−B → A, C−A → B, A+B → C). Higher = more refined triples but slower and more can fail the synonym check.">Refine iters</label>
-              <input type="range" id="refine-iters" min="0" max="20" value="1">
-              <span class="range-value" id="refine-iters-val">1</span>
+              <input type="range" id="refine-iters" min="0" max="20" value="{{ generation_defaults.refine_iterations }}">
+              <span class="range-value" id="refine-iters-val">{{ generation_defaults.refine_iterations }}</span>
             </div>
             <div class="gen-field" id="min-sim-field">
-              <label for="min-sim" title="Lower bound on the raw top-candidate similarity during sampling. Triples whose best candidate scores below this are rejected before refinement. Cosmul and cosadd use different scales; defaults auto-swap when the 3CosMul toggle changes.">Min similarity</label>
-              <input type="number" id="min-sim" value="0.25" min="0" max="2" step="0.01" inputmode="decimal">
+              <label for="min-sim" title="Lower bound on the top-candidate score during sampling. Defaults change with the selected scoring method.">Min similarity</label>
+              <input type="number" id="min-sim" value="{{ generation_defaults.min_similarity }}" min="0" max="2" step="0.01" inputmode="decimal">
             </div>
             <div class="gen-field" id="min-refined-sim-field">
               <label for="min-refined-sim" title="Final quality gate: the best A+B=C arrangement must score at least this after refinement. Higher = cleaner sums, fewer results.">Min refined sim.</label>
-              <input type="number" id="min-refined-sim" value="0.5" min="0" max="2" step="0.01" inputmode="decimal">
+              <input type="number" id="min-refined-sim" value="{{ generation_defaults.min_refined_similarity }}" min="0" max="2" step="0.01" inputmode="decimal">
             </div>
             <div class="gen-field" id="min-gap-ratio-field">
               <label for="min-gap-ratio" title="The top candidate's similarity must exceed the runner-up's by this factor. Rejects ambiguous triples where two different sum-words are almost equally good.">Min gap ratio</label>
-              <input type="number" id="min-gap-ratio" value="1" min="1" max="2" step="0.01" inputmode="decimal">
+              <input type="number" id="min-gap-ratio" value="{{ generation_defaults.min_gap_ratio }}" min="1" max="2" step="0.01" inputmode="decimal">
             </div>
             <div class="gen-field" id="max-syn-sim-field">
               <label for="max-syn-sim" title="Reject triples where any pair of words has cosine similarity above this. Prevents near-synonyms like (car, automobile, vehicle) which are trivial sums.">Max synonym sim.</label>
-              <input type="number" id="max-syn-sim" value="0.45" min="0" max="1" step="0.01" inputmode="decimal">
+              <input type="number" id="max-syn-sim" value="{{ generation_defaults.max_synonym_similarity }}" min="0" max="1" step="0.01" inputmode="decimal">
             </div>
           </div>
         </details>
         <button class="btn btn-ghost" id="generate-btn" onclick="generateWordSums()">Generate Word Sums</button>
+        <div class="chain-generator">
+          <h3>Generate Word Chain</h3>
+          <div class="gen-field">
+            <label for="chain-length" title="Number of words in the generated chain.">Chain length</label>
+            <input type="number" id="chain-length" value="5" min="2" step="1" inputmode="numeric">
+          </div>
+          <button class="btn btn-ghost" id="generate-chain-btn" onclick="generateWordChain()">Generate Word Chain</button>
+          <div class="chain-generator-note">Uses the 10k-word ABTT ConceptNet vocabulary. Adjacent cosine must be ≥ {{ chain_min_similarity }}; nonadjacent cosine must be ≤ {{ chain_max_earlier_similarity }}. Generated words start as drag-and-drop slots.</div>
+        </div>
       </div>
     </div>
 
@@ -97,14 +116,21 @@
   const saveUrl = "{% url 'save_puzzle' %}";
   const generateUrl = "{% url 'generate_combinations' %}";
   const puzzleId = {% if puzzle %}{{ puzzle.pk }}{% else %}null{% endif %};
-  const initialWordSums = {{ word_sums_json|default:"[]"|safe }};
-  const list = document.getElementById("word-sums-list");
+  const initialCombinations = {{ combinations_json|default:"[]"|safe }};
+  const list = document.getElementById("combination-list");
   const modelSelect = document.getElementById("model-select");
   const advancedPanel = document.getElementById("advanced-panel");
   const genBtn = document.getElementById("generate-btn");
   const showSimCb = document.getElementById("show-sim");
+  const showChainSimCb = document.getElementById("show-chain-sim");
+  const chainValidationTimers = new WeakMap();
+  const chainValidationVersions = new WeakMap();
+  const chainSimilarityResults = new WeakMap();
   showSimCb.addEventListener("change", () => {
     list.classList.toggle("show-metrics", showSimCb.checked);
+  });
+  showChainSimCb?.addEventListener("change", () => {
+    list.querySelectorAll(".word-chain-item").forEach(showChainSimilarities);
   });
   let rowCount = 0;
 
@@ -122,28 +148,32 @@
     refineItersVal.textContent = refineIters.value;
   });
 
-  // Auto-swap similarity-threshold defaults when 3CosMul toggles.
-  // Only swap when the value still matches the other mode's default,
-  // so manual edits aren't clobbered.
-  const cosmulCb = document.getElementById("cosmul");
+  // Auto-swap similarity thresholds when the scoring method changes,
+  // without overwriting values the user has edited.
+  const scoringMethod = document.getElementById("sum-scoring-method");
   const minSimInput = document.getElementById("min-sim");
   const minRefinedSimInput = document.getElementById("min-refined-sim");
-  const COSADD_DEFAULTS = { minSim: 0.6, minRefinedSim: 0.6 };
-  const COSMUL_DEFAULTS = { minSim: 0.25, minRefinedSim: 0.5 };
-  cosmulCb.addEventListener("change", () => {
-    const from = cosmulCb.checked ? COSADD_DEFAULTS : COSMUL_DEFAULTS;
-    const to = cosmulCb.checked ? COSMUL_DEFAULTS : COSADD_DEFAULTS;
-    if (parseFloat(minSimInput.value) === from.minSim) {
-      minSimInput.value = to.minSim;
+  const SCORE_DEFAULTS = {
+    cosadd: { minSim: 0.6, minRefinedSim: 0.6 },
+    cosmul: { minSim: 0.25, minRefinedSim: 0.5 },
+    raw_sum: { minSim: 0.6, minRefinedSim: 0.6 },
+  };
+  let previousScoreDefaults = SCORE_DEFAULTS[scoringMethod.value];
+  scoringMethod.addEventListener("change", () => {
+    const nextDefaults = SCORE_DEFAULTS[scoringMethod.value];
+    if (parseFloat(minSimInput.value) === previousScoreDefaults.minSim) {
+      minSimInput.value = nextDefaults.minSim;
     }
-    if (parseFloat(minRefinedSimInput.value) === from.minRefinedSim) {
-      minRefinedSimInput.value = to.minRefinedSim;
+    if (parseFloat(minRefinedSimInput.value) === previousScoreDefaults.minRefinedSim) {
+      minRefinedSimInput.value = nextDefaults.minRefinedSim;
     }
+    previousScoreDefaults = nextDefaults;
   });
 
   function addWordSum(addend1, addend2, sumWord, metrics) {
     const item = document.createElement("div");
     item.className = "word-sum-item";
+    item.dataset.type = "word_sum";
     const metricsHtml = metrics
       ? `<div class="word-sum-metrics" title="Cosine similarity of the two addends (left) and cosine similarity between the sum_word and the vector sum of the two addends (right).">addend sim: ${metrics.addendSim.toFixed(3)} · sum sim: ${metrics.sumSim.toFixed(3)}</div>`
       : "";
@@ -163,10 +193,134 @@
     rowCount++;
   }
 
-  // Prefill existing rows when editing, otherwise start with one empty row.
-  if (initialWordSums.length > 0) {
-    for (const ws of initialWordSums) {
-      addWordSum(ws.addend1, ws.addend2, ws.sum_word);
+  function addChainWord(container, slot = {word: "", kind: "draggable"}) {
+    const row = document.createElement("div");
+    row.className = "chain-editor-word";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "chain word";
+    input.autocomplete = "off";
+    input.autocapitalize = "none";
+    input.value = slot.word || "";
+    input.dataset.field = "word";
+    const kind = document.createElement("select");
+    kind.dataset.field = "kind";
+    for (const [value, label] of [
+      ["prefilled", "Pre-filled"], ["draggable", "Drag and drop"], ["typed", "Type"],
+    ]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      kind.appendChild(option);
+    }
+    kind.value = slot.kind || "draggable";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "remove-btn";
+    remove.textContent = "×";
+    remove.title = "Remove word";
+    remove.addEventListener("click", () => {
+      const chain = row.closest(".word-chain-item");
+      row.remove();
+      scheduleChainValidation(chain);
+    });
+    input.addEventListener("input", () => scheduleChainValidation(row.closest(".word-chain-item")));
+    row.append(input, kind, remove);
+    container.appendChild(row);
+  }
+
+  function addWordChain(words = [{word: "", kind: "draggable"}, {word: "", kind: "draggable"}]) {
+    const item = document.createElement("div");
+    item.className = "word-chain-item";
+    item.dataset.type = "word_chain";
+    item.innerHTML = `
+      <div class="chain-editor-header">
+        <strong>Word Chain</strong>
+        <button type="button" class="remove-btn" title="Remove chain">×</button>
+      </div>
+      <div class="chain-editor-words"></div>
+      <div class="chain-editor-actions">
+        <button type="button" class="btn btn-secondary add-chain-word">+ Add Word</button>
+        <span class="chain-validation" aria-live="polite">Enter at least two words.</span>
+      </div>
+    `;
+    const container = item.querySelector(".chain-editor-words");
+    words.forEach(word => addChainWord(container, word));
+    item.querySelector(".add-chain-word").addEventListener("click", () => {
+      addChainWord(container);
+      scheduleChainValidation(item);
+    });
+    item.querySelector(".chain-editor-header .remove-btn").addEventListener("click", () => item.remove());
+    list.appendChild(item);
+    scheduleChainValidation(item);
+  }
+
+  function scheduleChainValidation(item) {
+    if (!item) return;
+    clearTimeout(chainValidationTimers.get(item));
+    chainValidationVersions.set(item, (chainValidationVersions.get(item) || 0) + 1);
+    chainSimilarityResults.delete(item);
+    showChainSimilarities(item);
+    chainValidationTimers.set(item, setTimeout(() => validateChainEditor(item), 250));
+  }
+
+  function showChainSimilarities(item) {
+    item.querySelectorAll(".chain-similarity").forEach(label => label.remove());
+    const similarities = chainSimilarityResults.get(item);
+    if (!showChainSimCb?.checked || !similarities) return;
+    const rows = item.querySelectorAll(".chain-editor-word");
+    similarities.forEach((similarity, index) => {
+      const label = document.createElement("div");
+      label.className = "chain-similarity";
+      label.textContent = similarity === null
+        ? "Cosine: unavailable"
+        : `Cosine: ${similarity.toFixed(3)}`;
+      rows[index].after(label);
+    });
+  }
+
+  async function validateChainEditor(item) {
+    if (!item.isConnected) return;
+    const version = chainValidationVersions.get(item);
+    const inputs = Array.from(item.querySelectorAll("[data-field='word']"));
+    const words = inputs.map(input => input.value.trim());
+    const message = item.querySelector(".chain-validation");
+    inputs.forEach(input => input.classList.remove("chain-word-invalid"));
+    if (words.length < 2 || words.some(word => !word)) {
+      inputs.forEach(input => { if (!input.value.trim()) input.classList.add("chain-word-invalid"); });
+      message.textContent = "Enter at least two words.";
+      message.classList.add("invalid");
+      return;
+    }
+    try {
+      const response = await fetch("{% url 'validate_word_chain' %}", {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+        body: JSON.stringify({words}),
+      });
+      const result = await response.json();
+      if (version !== chainValidationVersions.get(item) || !item.isConnected) return;
+      if (result.error) throw new Error(result.error);
+      result.invalid_slots.forEach(index => inputs[index]?.classList.add("chain-word-invalid"));
+      if (showChainSimCb) {
+        chainSimilarityResults.set(item, result.similarities);
+        showChainSimilarities(item);
+      }
+      message.textContent = result.valid
+        ? "Valid chain"
+        : "Every word must be in the dictionary; adjacent cosine ≥ {{ chain_min_similarity }}, nonadjacent cosine ≤ {{ chain_max_earlier_similarity }}.";
+      message.classList.toggle("invalid", !result.valid);
+    } catch (error) {
+      if (version !== chainValidationVersions.get(item) || !item.isConnected) return;
+      message.textContent = error.message || "Could not validate this chain.";
+      message.classList.add("invalid");
+    }
+  }
+
+  if (initialCombinations.length) {
+    for (const combo of initialCombinations) {
+      if (combo.type === "word_chain") addWordChain(combo.words);
+      else addWordSum(combo.addend1, combo.addend2, combo.sum_word);
     }
   } else {
     addWordSum();
@@ -181,7 +335,7 @@
     const model = document.getElementById("model-select").value;
     const count = parseInt(document.getElementById("gen-count").value) || 5;
     const relatedPairs = document.getElementById("related-pairs").checked;
-    const cosmul = document.getElementById("cosmul").checked;
+    const sumScoringMethod = scoringMethod.value;
     const abtt = document.getElementById("abtt").checked;
     const topNVocab = parseInt(document.getElementById("top-n-vocab").value) || 0;
     const refineIterations = parseInt(refineIters.value);
@@ -201,7 +355,7 @@
       body: JSON.stringify({
         type: "word_sum", count, model,
         related_pairs: relatedPairs,
-        cosmul, abtt, top_n_vocab: topNVocab,
+        sum_scoring_method: sumScoringMethod, abtt, top_n_vocab: topNVocab,
         refine_iterations: refineIterations,
         min_similarity: minSimilarity,
         min_refined_similarity: minRefinedSimilarity,
@@ -246,21 +400,35 @@
 
   function savePuzzle() {
     const name = document.getElementById("puzzle-name").value.trim();
-    const rows = list.querySelectorAll(".word-sum-row");
+    const cards = list.querySelectorAll(".word-sum-item, .word-chain-item");
     const errorEl = document.getElementById("error");
     errorEl.style.display = "none";
 
-    const wordSums = [];
-    for (const row of rows) {
-      const addend1 = row.querySelector("[data-field='addend1']").value.trim();
-      const addend2 = row.querySelector("[data-field='addend2']").value.trim();
-      const sumWord = row.querySelector("[data-field='sum_word']").value.trim();
-      if (!addend1 || !addend2 || !sumWord) {
-        errorEl.textContent = "Fill in all fields for each word sum.";
-        errorEl.style.display = "block";
-        return;
+    const combinations = [];
+    for (const card of cards) {
+      if (card.dataset.type === "word_chain") {
+        const words = Array.from(card.querySelectorAll(".chain-editor-word")).map(row => ({
+          word: row.querySelector("[data-field='word']").value.trim(),
+          kind: row.querySelector("[data-field='kind']").value,
+        }));
+        if (words.length < 2 || words.some(slot => !slot.word)) {
+          errorEl.textContent = "Each word chain needs at least two filled word slots.";
+          errorEl.style.display = "block";
+          return;
+        }
+        combinations.push({type: "word_chain", words});
+      } else {
+        const row = card.querySelector(".word-sum-row");
+        const addend1 = row.querySelector("[data-field='addend1']").value.trim();
+        const addend2 = row.querySelector("[data-field='addend2']").value.trim();
+        const sumWord = row.querySelector("[data-field='sum_word']").value.trim();
+        if (!addend1 || !addend2 || !sumWord) {
+          errorEl.textContent = "Fill in all fields for each word sum.";
+          errorEl.style.display = "block";
+          return;
+        }
+        combinations.push({type: "word_sum", addend1, addend2, sum_word: sumWord});
       }
-      wordSums.push({ addend1, addend2, sum_word: sumWord });
     }
 
     if (!name) {
@@ -268,8 +436,8 @@
       errorEl.style.display = "block";
       return;
     }
-    if (wordSums.length === 0) {
-      errorEl.textContent = "Add at least one word sum.";
+    if (combinations.length === 0) {
+      errorEl.textContent = "Add at least one word combination.";
       errorEl.style.display = "block";
       return;
     }
@@ -283,7 +451,7 @@
         "Content-Type": "application/json",
         "X-CSRFToken": csrfToken,
       },
-      body: JSON.stringify({ id: puzzleId, name, word_sums: wordSums }),
+      body: JSON.stringify({ id: puzzleId, name, combinations }),
     })
       .then(r => r.json())
       .then(data => {
@@ -299,6 +467,33 @@
         errorEl.textContent = "Something went wrong.";
         errorEl.style.display = "block";
         btn.disabled = false;
+      });
+  }
+
+  function generateWordChain() {
+    const btn = document.getElementById("generate-chain-btn");
+    const length = parseInt(document.getElementById("chain-length").value, 10) || 5;
+    const errorEl = document.getElementById("error");
+    errorEl.style.display = "none";
+    btn.disabled = true;
+    btn.textContent = "Generating...";
+    fetch(generateUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+      body: JSON.stringify({type: "word_chain", length}),
+    })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        for (const chain of data.combinations || []) addWordChain(chain.words);
+      })
+      .catch(error => {
+        errorEl.textContent = error.message || "Failed to generate a word chain.";
+        errorEl.style.display = "block";
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.textContent = "Generate Word Chain";
       });
   }
 </script>
