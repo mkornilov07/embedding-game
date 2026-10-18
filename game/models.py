@@ -45,6 +45,15 @@ class GenerationDefaults(models.Model):
         return f"Generation defaults ({self.model_name})"
 
 
+class WordChainDefaults(models.Model):
+    key = models.CharField(max_length=32, unique=True, default="default")
+    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en-10k")
+    start_percent = models.FloatField(default=20)
+    min_previous_similarity = models.FloatField(default=0.47)
+    max_earlier_similarity = models.FloatField(default=0.31)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class WordCombination(models.Model):
     puzzle = models.ForeignKey(Puzzle, on_delete=models.CASCADE, related_name="combinations")
 
@@ -107,6 +116,8 @@ class PuzzleCompletion(models.Model):
 
 class CalibrationRound(models.Model):
     calibrator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=16, default="word_sum")
+    chain_length = models.PositiveIntegerField(default=5)
     parameters_before = models.JSONField()
     noise_stdev = models.FloatField(default=0.1)
     learning_rate = models.FloatField(default=0.1)

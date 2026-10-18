@@ -381,7 +381,7 @@
     board.links(comboIdx).forEach((link, linkIdx) => {
       link.classList.toggle("chain-link-wrong", invalidLinks.has(linkIdx));
     });
-    const correct = greenSet.size === boxes.length;
+    const correct = greenSet.size === boxes.length && !invalidLinks.size;
     if (correct) solved.markSolved(comboIdx);
     else solved.markUnsolved(comboIdx);
     return correct;

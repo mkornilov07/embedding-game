@@ -63,7 +63,7 @@ WORD_CHAIN_EXPANDED_MODEL = "conceptnet-numberbatch-en-20k"
 WORD_CHAIN_MIN_SIMILARITY = 0.47
 WORD_CHAIN_MAX_EARLIER_SIMILARITY = 0.31
 WORD_CHAIN_START_PERCENT = 20
-WORD_CHAIN_MAX_ATTEMPTS = 10
+WORD_CHAIN_MAX_ATTEMPTS = 20
 
 _cache = {}
 _cache_lock = threading.Lock()
@@ -94,8 +94,9 @@ def _load_model(model_name, abtt=False):
         return model, vocab
 
 
-def validate_word_chain(words, model_name=WORD_CHAIN_MODEL):
-    """Check vocabulary, adjacent minimums, and nonadjacent maximums."""
+def validate_word_chain(words, model_name=WORD_CHAIN_MODEL,
+                        min_previous_similarity=WORD_CHAIN_MIN_SIMILARITY):
+    """Check vocabulary and adjacent minimum similarity."""
     model, _ = _load_model(model_name, abtt=True)
     words = list(words)
     unknown = {
@@ -103,6 +104,7 @@ def validate_word_chain(words, model_name=WORD_CHAIN_MODEL):
         if not isinstance(word, str) or word not in model.key_to_index
     }
     invalid = set(unknown)
+    invalid_links = []
     similarities = []
 
     for index, (first, second) in enumerate(zip(words, words[1:])):
@@ -111,24 +113,16 @@ def validate_word_chain(words, model_name=WORD_CHAIN_MODEL):
             continue
         similarity = float(model.similarity(first, second))
         similarities.append(similarity)
-        if similarity < WORD_CHAIN_MIN_SIMILARITY:
-            invalid.update((index, index + 1))
-
-    for index, first in enumerate(words):
-        if index in unknown:
-            continue
-        for later_index in range(index + 2, len(words)):
-            if later_index in unknown:
-                continue
-            if model.similarity(first, words[later_index]) > WORD_CHAIN_MAX_EARLIER_SIMILARITY:
-                invalid.update((index, later_index))
+        if similarity < min_previous_similarity:
+            invalid_links.append(index)
 
     if len(words) < 2:
         invalid.update(range(len(words)))
 
     return {
-        "valid": len(words) >= 2 and not invalid,
+        "valid": len(words) >= 2 and not invalid and not invalid_links,
         "invalid_slots": sorted(invalid),
+        "invalid_links": invalid_links,
         "similarities": similarities,
     }
 

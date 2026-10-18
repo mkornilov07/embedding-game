@@ -3,12 +3,10 @@
 Run via Heroku Scheduler (or local cron) once per day:
     python manage.py generate_daily_puzzle
 
-A daily puzzle is 4 word sums from the embedding model + 1 from the
-curated pool. If the model generator fails or returns fewer than 4,
-the shortfall is filled from the curated pool so the daily puzzle
-still ships. Failures bubble up as `CommandError` so the scheduler
-records a non-zero exit.
+Odd days use word sums; even days use word chains. Failures bubble up as
+`CommandError` so the scheduler records a non-zero exit.
 """
+import random
 import time
 import traceback
 from datetime import timedelta
@@ -19,9 +17,11 @@ from django.utils import timezone
 
 from game.generators import (
     generate_curated_word_sums,
+    generate_word_chain,
     generate_word_sums,
 )
-from game.models import Puzzle, WordSum
+from game.calibration import get_chain_defaults
+from game.models import Puzzle, WordChain, WordChainSlot, WordSum
 
 
 MODEL_COUNT = 4
@@ -59,6 +59,28 @@ class Command(BaseCommand):
             )
             return
 
+        if today.day % 2 == 0:
+            chains = self._generate_chains()
+            try:
+                with transaction.atomic():
+                    puzzle = Puzzle.objects.create(name=name, is_daily=True)
+                    for words in chains:
+                        chain = WordChain.objects.create(puzzle=puzzle)
+                        WordChainSlot.objects.bulk_create([
+                            WordChainSlot(
+                                chain=chain, position=index, word=word,
+                                kind=(WordChainSlot.PREFILLED if index in (0, len(words) - 1)
+                                      else WordChainSlot.DRAGGABLE),
+                            )
+                            for index, word in enumerate(words)
+                        ])
+            except Exception as e:
+                raise CommandError(f"Failed to persist daily puzzle: {e}") from e
+            self.stdout.write(self.style.SUCCESS(
+                f'Created daily puzzle {puzzle.pk} "{name}" ({len(chains)} word chains).'
+            ))
+            return
+
         model_combos = self._safe_generate_model(MODEL_COUNT)
         curated_needed = TOTAL - len(model_combos)
         curated_combos = self._safe_generate_curated(curated_needed)
@@ -87,6 +109,26 @@ class Command(BaseCommand):
             f"Created daily puzzle {puzzle.pk} \"{name}\" "
             f"({len(model_combos)} model + {len(curated_combos)} curated)."
         ))
+
+    def _generate_chains(self):
+        defaults = get_chain_defaults()
+        chains = []
+        for _ in range(random.randint(4, 6)):
+            length = random.randint(4, 6)
+            try:
+                chain = generate_word_chain(
+                    length,
+                    model_name=defaults.model_name,
+                    start_percent=defaults.start_percent,
+                    min_previous_similarity=defaults.min_previous_similarity,
+                    max_earlier_similarity=defaults.max_earlier_similarity,
+                )
+            except Exception as e:
+                raise CommandError(f"Could not generate a daily word chain: {e}") from e
+            if not chain:
+                raise CommandError(f"Could not generate a daily word chain of length {length}.")
+            chains.append(chain)
+        return chains
 
     def _wait_for_db(self):
         """Probe the database with retries.

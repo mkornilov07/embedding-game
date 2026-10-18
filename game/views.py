@@ -15,8 +15,7 @@ from django.views.decorators.http import require_POST
 
 from .generators import (
     WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL,
-    WORD_CHAIN_MAX_EARLIER_SIMILARITY,
-    WORD_CHAIN_MIN_SIMILARITY, WORD_CHAIN_MODEL, WORD_CHAIN_START_PERCENT,
+    WORD_CHAIN_MAX_ATTEMPTS,
     available_local_models, generate_curated_word_sums, generate_word_chain,
     generate_word_sums, validate_word_chain,
 )
@@ -226,6 +225,7 @@ def _editable_puzzle_or_404(request, pk):
 @login_required
 def create_puzzle(request, pk=None):
     defaults = calibration.get_defaults()
+    chain_defaults = calibration.get_chain_defaults()
     models = available_local_models()
     models.setdefault(defaults.model_name, defaults.model_name)
     existing = None
@@ -257,8 +257,7 @@ def create_puzzle(request, pk=None):
         "generation_defaults": calibration.as_dict(defaults),
         "puzzle": existing,
         "combinations_json": json.dumps(initial_combinations),
-        "chain_min_similarity": WORD_CHAIN_MIN_SIMILARITY,
-        "chain_max_earlier_similarity": WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+        "chain_min_similarity": chain_defaults.min_previous_similarity,
     })
 
 
@@ -275,6 +274,7 @@ def save_puzzle(request):
         return JsonResponse({"error": "Name and at least one word combination required."}, status=400)
 
     normalized = []
+    chain_defaults = calibration.get_chain_defaults()
     try:
         for index, combination in enumerate(combinations, start=1):
             if combination.get("type") == "word_sum":
@@ -291,11 +291,14 @@ def save_puzzle(request):
                 words = [slot.get("word", "").strip() for slot in slots]
                 if len(words) < 2 or not all(words):
                     raise ValueError(f"Word chain {index}: enter at least two words.")
-                if not validate_word_chain(words)["valid"]:
+                if not validate_word_chain(
+                    words, model_name=chain_defaults.model_name,
+                    min_previous_similarity=chain_defaults.min_previous_similarity,
+                )["valid"]:
                     raise ValueError(
                         f"Word chain {index}: every word must be in the ConceptNet dictionary, "
-                        f"adjacent words need cosine similarity of at least {WORD_CHAIN_MIN_SIMILARITY}, "
-                        f"and nonadjacent words at most {WORD_CHAIN_MAX_EARLIER_SIMILARITY}."
+                        f"and adjacent words need cosine similarity of at least "
+                        f"{chain_defaults.min_previous_similarity}."
                     )
                 kinds = [slot.get("kind") for slot in slots]
                 allowed_kinds = {choice for choice, _ in WordChainSlot.KIND_CHOICES}
@@ -341,7 +344,11 @@ def save_puzzle(request):
 def validate_word_chain_view(request):
     try:
         words = json.loads(request.body).get("words", [])
-        result = validate_word_chain(words)
+        defaults = calibration.get_chain_defaults()
+        result = validate_word_chain(
+            words, model_name=defaults.model_name,
+            min_previous_similarity=defaults.min_previous_similarity,
+        )
         if not request.user.is_staff:
             result.pop("similarities")
         return JsonResponse(result)
@@ -373,6 +380,7 @@ def pin_puzzle(request, pk):
 @staff_member_required
 def calibration_view(request):
     defaults = calibration.get_defaults()
+    chain_defaults = calibration.get_chain_defaults()
     models = available_local_models()
     models.setdefault(defaults.model_name, defaults.model_name)
     return render(request, "game/calibration.html", {
@@ -380,9 +388,7 @@ def calibration_view(request):
         "available_models": models,
         "top_vocab_options": (0, 1000, 3000, 5000, 10000),
         "refine_options": (0, 1, 2, 3),
-        "chain_min_similarity": WORD_CHAIN_MIN_SIMILARITY,
-        "chain_max_earlier_similarity": WORD_CHAIN_MAX_EARLIER_SIMILARITY,
-        "chain_start_percent": WORD_CHAIN_START_PERCENT,
+        "chain_parameters": calibration.chain_as_dict(chain_defaults),
     })
 
 
@@ -438,6 +444,46 @@ def select_calibration_candidate(request, pk):
         return JsonResponse({"error": str(error)}, status=400)
 
 
+@staff_member_required
+@require_POST
+def start_chain_calibration(request):
+    try:
+        data = json.loads(request.body)
+        parameters = calibration.chain_as_dict(calibration.get_chain_defaults())
+        parameters.update({
+            "model_name": {
+                "3k": WORD_CHAIN_3K_MODEL, "10k": WORD_CHAIN_10K_MODEL,
+                "expanded": WORD_CHAIN_EXPANDED_MODEL,
+            }[data["vocabulary"]],
+            "start_percent": float(data["start_percent"]),
+            "min_previous_similarity": float(data["min_previous_similarity"]),
+            "max_earlier_similarity": float(data["max_earlier_similarity"]),
+        })
+        round_record = calibration.generate_chain_round(
+            request.user, parameters, length=int(data["length"]),
+            noise_stdev=float(data.get("noise_stdev", calibration.NOISE_STDEV)),
+            learning_rate=float(data.get("learning_rate", calibration.LEARNING_RATE)),
+        )
+        return JsonResponse(_calibration_round_payload(round_record))
+    except (KeyError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+
+
+@staff_member_required
+@require_POST
+def select_chain_calibration_candidate(request, pk):
+    try:
+        data = json.loads(request.body)
+        round_record = calibration.select_chain_candidate(
+            request.user, pk, int(data["candidate_index"]),
+        )
+        return JsonResponse(_calibration_round_payload(round_record))
+    except calibration.CalibrationRound.DoesNotExist:
+        return JsonResponse({"error": "Calibration round not found."}, status=404)
+    except (KeyError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+
+
 def _calibration_round_payload(round_record):
     return {
         "round_id": round_record.pk,
@@ -474,6 +520,7 @@ def generate_combinations(request):
     max_synonym_similarity = data.get("max_synonym_similarity")
 
     if gen_type == "word_chain":
+        chain_defaults = calibration.get_chain_defaults()
         if any(key in data for key in (
             "min_previous_similarity", "max_earlier_similarity", "vocabulary", "start_percent",
         )) and not request.user.is_staff:
@@ -481,7 +528,7 @@ def generate_combinations(request):
         try:
             vocabulary = data.get("vocabulary", "standard")
             model_name = {
-                "standard": WORD_CHAIN_MODEL,
+                "standard": chain_defaults.model_name,
                 "3k": WORD_CHAIN_3K_MODEL,
                 "10k": WORD_CHAIN_10K_MODEL,
                 "expanded": WORD_CHAIN_EXPANDED_MODEL,
@@ -494,13 +541,13 @@ def generate_combinations(request):
             chain = generate_word_chain(
                 chain_length,
                 min_previous_similarity=data.get(
-                    "min_previous_similarity", WORD_CHAIN_MIN_SIMILARITY,
+                    "min_previous_similarity", chain_defaults.min_previous_similarity,
                 ),
                 max_earlier_similarity=data.get(
-                    "max_earlier_similarity", WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+                    "max_earlier_similarity", chain_defaults.max_earlier_similarity,
                 ),
                 model_name=model_name,
-                start_percent=data.get("start_percent", WORD_CHAIN_START_PERCENT),
+                start_percent=data.get("start_percent", chain_defaults.start_percent),
             )
         except (TypeError, ValueError) as error:
             return JsonResponse({"error": str(error)}, status=400)
@@ -509,14 +556,18 @@ def generate_combinations(request):
                 "error": f"Missing data/{model_name}-abtt.kv.",
             }, status=400)
         if chain is None:
-            return JsonResponse({"error": "Could not generate a chain after 10 attempts."}, status=400)
+            return JsonResponse({"error": f"Could not generate a chain after {WORD_CHAIN_MAX_ATTEMPTS} attempts."}, status=400)
         result = {"combinations": [{
             "type": "word_chain",
             "words": [{"word": word, "kind": WordChainSlot.DRAGGABLE} for word in chain],
         }]}
         if request.user.is_staff:
-            preview = validate_word_chain(chain, model_name=model_name)
-            puzzle_valid = validate_word_chain(chain)["valid"]
+            preview = validate_word_chain(chain, model_name=model_name,
+                                          min_previous_similarity=chain_defaults.min_previous_similarity)
+            puzzle_valid = validate_word_chain(
+                chain, model_name=chain_defaults.model_name,
+                min_previous_similarity=chain_defaults.min_previous_similarity,
+            )["valid"]
             result.update(similarities=preview["similarities"], puzzle_valid=puzzle_valid)
         return JsonResponse(result)
 
@@ -756,7 +807,7 @@ def duel_row_solved(request, pk):
     my_count = progress.count if progress else 0
     finished = False
 
-    if len(green) == slot_count:
+    if len(green) == slot_count and not invalid_links:
         my_count, finished = services.record_solved_combination(
             duel, request.user, combination, slot_words, total,
         )

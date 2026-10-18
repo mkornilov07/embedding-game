@@ -1,24 +1,90 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
+from io import StringIO
 from unittest.mock import patch
 
 import numpy as np
 from gensim.models import KeyedVectors
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from .models import Duel, Puzzle, PuzzleCompletion, WordChain, WordChainSlot, WordSum
-from .calibration import as_dict, generate_round, get_defaults, select_candidate
+from .calibration import (
+    as_dict, chain_as_dict, generate_chain_round, generate_round,
+    get_chain_defaults, get_defaults, select_candidate, select_chain_candidate,
+)
 from .generators import (
     WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL,
-    WORD_CHAIN_MAX_EARLIER_SIMILARITY, WORD_CHAIN_MIN_SIMILARITY,
+    WORD_CHAIN_MAX_ATTEMPTS, WORD_CHAIN_MAX_EARLIER_SIMILARITY, WORD_CHAIN_MIN_SIMILARITY,
     _best_arrangement, _similarity_search,
     generate_word_chain, validate_word_chain,
 )
 from .services import board_context, check_row, mark_puzzle_completed, record_solved_row
 from build_models import filter_words
+
+
+class DailyPuzzleGenerationTests(TestCase):
+    @patch("game.management.commands.generate_daily_puzzle.Command._wait_for_db")
+    @patch("game.management.commands.generate_daily_puzzle.timezone.now")
+    @patch("game.management.commands.generate_daily_puzzle.random.randint")
+    @patch("game.management.commands.generate_daily_puzzle.generate_word_chain")
+    def test_even_day_creates_random_chains_with_prefilled_ends(
+        self, generate, randint, now, _probe,
+    ):
+        now.return_value = datetime(2026, 10, 18, tzinfo=datetime_timezone.utc)
+        randint.side_effect = [5, 4, 5, 6, 4, 5]
+        generate.side_effect = lambda length, **kwargs: [f"word{i}" for i in range(length)]
+        defaults = get_chain_defaults()
+        defaults.start_percent = 35
+        defaults.save()
+
+        call_command("generate_daily_puzzle", stdout=StringIO())
+
+        puzzle = Puzzle.objects.get(is_daily=True)
+        self.assertEqual(puzzle.name, "October 18, 2026")
+        self.assertEqual(WordSum.objects.filter(puzzle=puzzle).count(), 0)
+        chains = list(WordChain.objects.filter(puzzle=puzzle).order_by("pk"))
+        self.assertEqual([chain.slots.count() for chain in chains], [4, 5, 6, 4, 5])
+        for chain in chains:
+            slots = list(chain.slots.all())
+            self.assertEqual(slots[0].kind, WordChainSlot.PREFILLED)
+            self.assertEqual(slots[-1].kind, WordChainSlot.PREFILLED)
+            self.assertTrue(all(slot.kind == WordChainSlot.DRAGGABLE for slot in slots[1:-1]))
+        self.assertTrue(all(call.kwargs["start_percent"] == 35 for call in generate.call_args_list))
+
+        call_command("generate_daily_puzzle", stdout=StringIO())
+        self.assertEqual(Puzzle.objects.filter(is_daily=True).count(), 1)
+        self.assertEqual(generate.call_count, 5)
+
+    @patch("game.management.commands.generate_daily_puzzle.Command._wait_for_db")
+    @patch("game.management.commands.generate_daily_puzzle.timezone.now")
+    @patch("game.management.commands.generate_daily_puzzle.generate_word_chain", return_value=None)
+    def test_even_day_aborts_if_a_chain_cannot_be_generated(self, _generate, now, _probe):
+        now.return_value = datetime(2026, 10, 18, tzinfo=datetime_timezone.utc)
+        with self.assertRaises(CommandError):
+            call_command("generate_daily_puzzle", stdout=StringIO())
+        self.assertFalse(Puzzle.objects.filter(is_daily=True).exists())
+
+    @patch("game.management.commands.generate_daily_puzzle.Command._wait_for_db")
+    @patch("game.management.commands.generate_daily_puzzle.timezone.now")
+    @patch("game.management.commands.generate_daily_puzzle.generate_word_sums")
+    @patch("game.management.commands.generate_daily_puzzle.generate_curated_word_sums")
+    def test_odd_day_keeps_word_sums(self, curated, model, now, _probe):
+        now.return_value = datetime(2026, 10, 17, tzinfo=datetime_timezone.utc)
+        combo = {"addend1": "sun", "addend2": "rain", "sum_word": "light"}
+        model.return_value = [combo] * 4
+        curated.return_value = [combo]
+
+        call_command("generate_daily_puzzle", stdout=StringIO())
+
+        puzzle = Puzzle.objects.get(is_daily=True)
+        self.assertEqual(puzzle.name, "October 17, 2026")
+        self.assertEqual(WordSum.objects.filter(puzzle=puzzle).count(), 5)
+        self.assertFalse(WordChain.objects.filter(puzzle=puzzle).exists())
 
 
 class VocabularyFilteringTests(SimpleTestCase):
@@ -167,6 +233,51 @@ class CalibrationTests(TestCase):
         self.assertEqual(first_round.clicks.count(), 1)
         self.assertNotEqual(first_round.pk, next_round.pk)
 
+    @patch("game.calibration.generate_word_chain", return_value=["sun", "star", "light"])
+    def test_chain_round_selection_persists_defaults(self, generate):
+        user = get_user_model().objects.create_user("chain_admin", password="password", is_staff=True)
+        parameters = chain_as_dict(get_chain_defaults())
+        first_round = generate_chain_round(user, parameters, length=3, noise_stdev=0)
+        next_round = select_chain_candidate(user, first_round.pk, 0)
+        first_round.refresh_from_db()
+        self.assertEqual(first_round.kind, "word_chain")
+        self.assertEqual(first_round.chain_length, 3)
+        self.assertEqual(len(first_round.candidates), 9)
+        self.assertEqual(first_round.selected_index, 0)
+        self.assertEqual(first_round.clicks.count(), 1)
+        self.assertEqual(chain_as_dict(get_chain_defaults()), parameters)
+        self.assertEqual(next_round.chain_length, 3)
+        self.assertEqual(generate.call_count, 18)
+
+    @patch("game.calibration.generate_word_chain", return_value=["sun", "star", "light"])
+    def test_chain_calibration_endpoints_are_staff_only(self, generate):
+        user = get_user_model().objects.create_user("creator", password="password")
+        payload = {
+            "vocabulary": "10k", "length": 3, "start_percent": 25,
+            "min_previous_similarity": 0.5, "max_earlier_similarity": 0.3,
+            "noise_stdev": 0,
+        }
+        self.client.force_login(user)
+        self.assertEqual(self.client.post(
+            reverse("start_chain_calibration"),
+            data=json.dumps(payload), content_type="application/json",
+        ).status_code, 302)
+
+        user.is_staff = True
+        user.save(update_fields=["is_staff"])
+        response = self.client.post(
+            reverse("start_chain_calibration"),
+            data=json.dumps(payload), content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        round_id = response.json()["round_id"]
+        response = self.client.post(
+            reverse("select_chain_calibration_candidate", args=[round_id]),
+            data=json.dumps({"candidate_index": 0}), content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get_chain_defaults().start_percent, 25)
+
 
 class WordSumGenerationTests(TestCase):
     def test_scoring_methods_include_raw_vector_sum(self):
@@ -234,11 +345,44 @@ class WordChainTests(TestCase):
         self.assertFalse(validate_word_chain(["sun", "missing"])["valid"])
         self.assertFalse(validate_word_chain(["sun", "rain"])["valid"])
 
-    def test_validation_rejects_nonadjacent_similarity(self):
+    def test_validation_ignores_nonadjacent_similarity(self):
         result = validate_word_chain(["sun", "star", "light"])
-        self.assertFalse(result["valid"])
-        self.assertEqual(result["invalid_slots"], [0, 2])
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["invalid_slots"], [])
+        self.assertEqual(result["invalid_links"], [])
         self.assertTrue(all(score >= WORD_CHAIN_MIN_SIMILARITY for score in result["similarities"]))
+
+        low = validate_word_chain(["sun", "rain"])
+        self.assertEqual(low["invalid_slots"], [])
+        self.assertEqual(low["invalid_links"], [0])
+
+    def test_database_defaults_drive_chain_generation_and_validation(self):
+        defaults = get_chain_defaults()
+        defaults.start_percent = 35
+        defaults.min_previous_similarity = 0.6
+        defaults.max_earlier_similarity = 0.4
+        defaults.save()
+        user = get_user_model().objects.create_user("chain_defaults_user", password="password")
+        self.client.force_login(user)
+
+        with patch("game.views.generate_word_chain", return_value=["sun", "star", "light"]) as generate:
+            response = self.client.post(
+                reverse("generate_combinations"),
+                data=json.dumps({"type": "word_chain", "length": 3}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(generate.call_args.kwargs["start_percent"], 35)
+        self.assertEqual(generate.call_args.kwargs["min_previous_similarity"], 0.6)
+        self.assertEqual(generate.call_args.kwargs["max_earlier_similarity"], 0.4)
+
+        response = self.client.post(
+            reverse("validate_word_chain"),
+            data=json.dumps({"words": ["rain", "light"]}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.json()["invalid_slots"], [])
+        self.assertEqual(response.json()["invalid_links"], [0])
 
     def test_chain_similarity_debug_is_admin_only(self):
         user = get_user_model().objects.create_user("creator", password="password")
@@ -264,6 +408,7 @@ class WordChainTests(TestCase):
         )
 
     def test_generator_uses_distinct_words_and_returns_valid_chain(self):
+        self.assertEqual(WORD_CHAIN_MAX_ATTEMPTS, 20)
         self.assertEqual(WORD_CHAIN_MIN_SIMILARITY, 0.47)
         self.assertEqual(WORD_CHAIN_MAX_EARLIER_SIMILARITY, 0.31)
         with patch("game.generators.random.choice", return_value=0):
@@ -288,7 +433,7 @@ class WordChainTests(TestCase):
 
         page = self.client.get(reverse("create_puzzle"))
         self.assertEqual(page.context["chain_min_similarity"], 0.47)
-        self.assertEqual(page.context["chain_max_earlier_similarity"], 0.31)
+        self.assertNotContains(page, "Uses the 10k-word ABTT ConceptNet vocabulary")
 
     def test_generator_respects_previous_and_earlier_similarity_limits(self):
         with patch("game.generators.random.choice", return_value=3):
@@ -356,7 +501,7 @@ class WordChainTests(TestCase):
         self.assertContains(page, '<option value="3k">Original (3k)</option>')
         self.assertContains(page, '<option value="10k" selected>Current game (10k)</option>')
         self.assertContains(page, '<option value="expanded">Expanded (20k)</option>')
-        self.assertContains(page, 'id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="20"')
+        self.assertContains(page, 'id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="20.0"')
         self.assertContains(page, 'id="debug-min-previous" type="number" min="-1" max="1" step="any" value="0.47"')
         self.assertContains(page, 'id="debug-max-earlier" type="number" min="-1" max="1" step="any" value="0.31"')
         response = self.client.post(
@@ -365,7 +510,7 @@ class WordChainTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["similarities"]), 2)
         self.assertTrue(all(score >= 0.8 for score in response.json()["similarities"]))
-        self.assertFalse(response.json()["puzzle_valid"])
+        self.assertTrue(response.json()["puzzle_valid"])
 
         for vocabulary in ("3k", "10k", "expanded"):
             expanded = json.dumps({
@@ -446,8 +591,13 @@ class WordChainTests(TestCase):
             data=json.dumps({"combination_id": chain.pk, "words": entries[1]["words"]}),
             content_type="application/json",
         )
-        self.assertNotEqual(len(response.json()["green_slots"]), 3)
+        self.assertEqual(len(response.json()["green_slots"]), 3)
         self.assertIn(0, response.json()["invalid_links"])
+        response = self.client.post(
+            reverse("check_puzzle", args=[puzzle.pk]),
+            data=json.dumps(entries), content_type="application/json",
+        )
+        self.assertFalse(response.json()["correct"])
 
         entries[1]["words"] = ["rain", "light", "rain"]
         response = self.client.post(
@@ -455,7 +605,7 @@ class WordChainTests(TestCase):
             data=json.dumps({"combination_id": chain.pk, "words": entries[1]["words"]}),
             content_type="application/json",
         )
-        self.assertNotEqual(len(response.json()["green_slots"]), 3)
+        self.assertEqual(len(response.json()["green_slots"]), 3)
         self.assertEqual(response.json()["invalid_links"], [])
 
     def test_editor_save_rejects_invalid_chain_without_erasing_puzzle(self):
@@ -496,7 +646,7 @@ class WordChainTests(TestCase):
         response = self.client.post(
             reverse("save_puzzle"), data=json.dumps(invalid), content_type="application/json",
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
 
         invalid["combinations"][0]["words"] = [
             {"word": "sun", "kind": "prefilled"},

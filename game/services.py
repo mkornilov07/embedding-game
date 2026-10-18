@@ -13,7 +13,8 @@ from django.urls import reverse
 from django.db.models import Q
 from django.utils import timezone
 
-from .generators import WORD_CHAIN_MIN_SIMILARITY, validate_word_chain
+from .generators import validate_word_chain
+from .calibration import get_chain_defaults
 from .models import Duel, DuelProgress, PuzzleCompletion, WordChain, WordSum
 
 
@@ -49,16 +50,17 @@ def check_word_chain(chain, words):
     if len(words) != len(slots):
         return [], [], list(range(max(len(words), len(slots))))
 
-    result = validate_word_chain(words)
+    defaults = get_chain_defaults()
+    result = validate_word_chain(
+        words, model_name=defaults.model_name,
+        min_previous_similarity=defaults.min_previous_similarity,
+    )
     invalid = set(result["invalid_slots"])
     for index, slot in enumerate(slots):
         if slot.kind == "prefilled" and words[index] != slot.word:
             invalid.add(index)
 
-    invalid_links = [
-        index for index, similarity in enumerate(result["similarities"])
-        if similarity is None or similarity < WORD_CHAIN_MIN_SIMILARITY
-    ]
+    invalid_links = result["invalid_links"]
     return [index for index in range(len(slots)) if index not in invalid], [], invalid_links
 
 
@@ -70,8 +72,8 @@ def combination_is_solved(combination, words):
         chain = word_chain_for(combination)
         if chain is None:
             return False
-        green, _, _ = check_word_chain(chain, words)
-        return len(green) == chain.slots.count()
+        green, _, invalid_links = check_word_chain(chain, words)
+        return len(green) == chain.slots.count() and not invalid_links
 
     return (
         len(words) == 3

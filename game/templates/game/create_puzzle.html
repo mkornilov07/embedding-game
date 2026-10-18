@@ -99,7 +99,6 @@
             <input type="number" id="chain-length" value="5" min="2" step="1" inputmode="numeric">
           </div>
           <button class="btn btn-ghost" id="generate-chain-btn" onclick="generateWordChain()">Generate Word Chain</button>
-          <div class="chain-generator-note">Uses the 10k-word ABTT ConceptNet vocabulary. Adjacent cosine must be ≥ {{ chain_min_similarity }}; nonadjacent cosine must be ≤ {{ chain_max_earlier_similarity }}. Generated words start as drag-and-drop slots.</div>
         </div>
       </div>
     </div>
@@ -126,6 +125,7 @@
   const chainValidationTimers = new WeakMap();
   const chainValidationVersions = new WeakMap();
   const chainSimilarityResults = new WeakMap();
+  const chainInvalidLinks = new WeakMap();
   showSimCb.addEventListener("change", () => {
     list.classList.toggle("show-metrics", showSimCb.checked);
   });
@@ -260,22 +260,26 @@
     clearTimeout(chainValidationTimers.get(item));
     chainValidationVersions.set(item, (chainValidationVersions.get(item) || 0) + 1);
     chainSimilarityResults.delete(item);
+    chainInvalidLinks.delete(item);
     showChainSimilarities(item);
     chainValidationTimers.set(item, setTimeout(() => validateChainEditor(item), 250));
   }
 
   function showChainSimilarities(item) {
-    item.querySelectorAll(".chain-similarity").forEach(label => label.remove());
+    item.querySelectorAll(".chain-editor-link").forEach(link => link.remove());
     const similarities = chainSimilarityResults.get(item);
-    if (!showChainSimCb?.checked || !similarities) return;
     const rows = item.querySelectorAll(".chain-editor-word");
-    similarities.forEach((similarity, index) => {
+    rows.forEach((row, index) => {
+      if (index === rows.length - 1) return;
       const label = document.createElement("div");
-      label.className = "chain-similarity";
-      label.textContent = similarity === null
-        ? "Cosine: unavailable"
-        : `Cosine: ${similarity.toFixed(3)}`;
-      rows[index].after(label);
+      label.className = "chain-editor-link";
+      label.classList.toggle("invalid", chainInvalidLinks.get(item)?.includes(index) || false);
+      label.textContent = "↓";
+      if (showChainSimCb?.checked && similarities) {
+        const similarity = similarities[index];
+        label.textContent += similarity === null ? " Cosine: unavailable" : ` Cosine: ${similarity.toFixed(3)}`;
+      }
+      row.after(label);
     });
   }
 
@@ -286,6 +290,7 @@
     const words = inputs.map(input => input.value.trim());
     const message = item.querySelector(".chain-validation");
     inputs.forEach(input => input.classList.remove("chain-word-invalid"));
+    item.querySelectorAll(".chain-editor-link").forEach(link => link.classList.remove("invalid"));
     if (words.length < 2 || words.some(word => !word)) {
       inputs.forEach(input => { if (!input.value.trim()) input.classList.add("chain-word-invalid"); });
       message.textContent = "Enter at least two words.";
@@ -302,13 +307,14 @@
       if (version !== chainValidationVersions.get(item) || !item.isConnected) return;
       if (result.error) throw new Error(result.error);
       result.invalid_slots.forEach(index => inputs[index]?.classList.add("chain-word-invalid"));
+      chainInvalidLinks.set(item, result.invalid_links);
       if (showChainSimCb) {
         chainSimilarityResults.set(item, result.similarities);
-        showChainSimilarities(item);
       }
+      showChainSimilarities(item);
       message.textContent = result.valid
         ? "Valid chain"
-        : "Every word must be in the dictionary; adjacent cosine ≥ {{ chain_min_similarity }}, nonadjacent cosine ≤ {{ chain_max_earlier_similarity }}.";
+        : "Every word must be in the dictionary; neighboring words need cosine similarity of at least {{ chain_min_similarity }}.";
       message.classList.toggle("invalid", !result.valid);
     } catch (error) {
       if (version !== chainValidationVersions.get(item) || !item.isConnected) return;

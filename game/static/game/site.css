@@ -684,6 +684,8 @@ input[type="range"] { width: 100%; accent-color: var(--color-primary); }
 .chain-editor-actions { flex-wrap: wrap; }
 .chain-debug-toggle { display: inline-flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); font-size: 0.85rem; }
 .chain-similarity { color: var(--color-text-muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; padding-left: var(--space-2); }
+.chain-editor-link { color: var(--color-text-muted); font-size: 0.8rem; padding-left: var(--space-2); }
+.chain-editor-link.invalid { color: var(--color-danger); font-weight: 700; }
 .chain-validation { color: var(--color-success-text); font-size: 0.85rem; }
 .chain-validation.invalid { color: var(--color-danger-text); }
 .chain-word-invalid {

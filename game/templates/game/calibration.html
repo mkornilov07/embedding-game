@@ -79,15 +79,23 @@
   </section>
 
   <section class="debug-section">
-    <h2>Generate word chains</h2>
-    <p class="subtitle">Uses ABTT ConceptNet. Each new word must meet the previous-word minimum and stay at or below the earlier-word maximum.</p>
+    <h2>Word-chain calibration</h2>
+    <p class="subtitle">Choose a chain you prefer to update the generation defaults.</p>
     <div class="calibration-controls">
-      <div class="field"><label for="debug-chain-vocabulary">Vocabulary</label><select id="debug-chain-vocabulary"><option value="3k">Original (3k)</option><option value="10k" selected>Current game (10k)</option><option value="expanded">Expanded (20k)</option></select></div>
-      <div class="field"><label for="debug-chain-start-percent">Starting words: top % of vocabulary</label><input id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="{{ chain_start_percent }}" required></div>
+      <div class="field"><label for="debug-chain-vocabulary">Vocabulary</label><select id="debug-chain-vocabulary"><option value="3k"{% if chain_parameters.model_name == "conceptnet-numberbatch-en" %} selected{% endif %}>Original (3k)</option><option value="10k"{% if chain_parameters.model_name == "conceptnet-numberbatch-en-10k" %} selected{% endif %}>Current game (10k)</option><option value="expanded"{% if chain_parameters.model_name == "conceptnet-numberbatch-en-20k" %} selected{% endif %}>Expanded (20k)</option></select></div>
+      <div class="field"><label for="debug-chain-start-percent">Starting words: top % of vocabulary</label><input id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="{{ chain_parameters.start_percent }}" required></div>
       <div class="field"><label for="debug-chain-length">Length</label><input id="debug-chain-length" type="number" min="2" step="1" value="5" required></div>
-      <div class="field"><label for="debug-min-previous">Minimum similarity to previous word</label><input id="debug-min-previous" type="number" min="-1" max="1" step="any" value="{{ chain_min_similarity }}" required></div>
-      <div class="field"><label for="debug-max-earlier">Maximum similarity to any earlier word</label><input id="debug-max-earlier" type="number" min="-1" max="1" step="any" value="{{ chain_max_earlier_similarity }}" required></div>
+      <div class="field"><label for="debug-min-previous">Minimum similarity to previous word</label><input id="debug-min-previous" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.min_previous_similarity }}" required></div>
+      <div class="field"><label for="debug-max-earlier">Maximum similarity to any earlier word</label><input id="debug-max-earlier" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.max_earlier_similarity }}" required></div>
+      <div class="field"><label for="chain-noise-stdev">Noise standard deviation</label><input id="chain-noise-stdev" type="number" min="0" step="0.01" value="0.1"></div>
+      <div class="field"><label for="chain-learning-rate">Learning rate</label><input id="chain-learning-rate" type="number" min="0" step="0.01" value="0.1"></div>
     </div>
+    <div class="calibration-current" id="chain-current-parameters"></div>
+    <button class="btn btn-primary" id="start-chain-calibration">Generate candidates</button>
+    <div class="error" id="chain-calibration-error" hidden></div>
+    <div class="calibration-grid" id="chain-candidate-grid"></div>
+    <h3>Generate word chains</h3>
+    <p class="subtitle">Previewing does not update the defaults.</p>
     <button class="btn btn-ghost" id="debug-generate-chain">Generate word chain</button>
     <div class="error" id="debug-chain-error" hidden></div>
     <div class="debug-results" id="debug-chain-results"></div>
@@ -182,6 +190,83 @@
 
   startButton.addEventListener("click", startCalibration);
 
+  const chainCalibrationButton = document.getElementById("start-chain-calibration");
+  const chainCalibrationError = document.getElementById("chain-calibration-error");
+  const chainGrid = document.getElementById("chain-candidate-grid");
+  const chainStartUrl = "{% url 'start_chain_calibration' %}";
+  const chainSelectUrl = id => `/calibrate/chain/${id}/select/`;
+
+  function chainSettings() {
+    return {
+      vocabulary: document.getElementById("debug-chain-vocabulary").value,
+      start_percent: readNumber("debug-chain-start-percent"),
+      length: readNumber("debug-chain-length"),
+      min_previous_similarity: readNumber("debug-min-previous"),
+      max_earlier_similarity: readNumber("debug-max-earlier"),
+    };
+  }
+
+  function renderChainRound(round) {
+    const p = round.parameters;
+    document.getElementById("chain-current-parameters").textContent =
+      `Current: starting words ${p.start_percent.toFixed(1)}% · previous ${p.min_previous_similarity.toFixed(3)} · earlier ${p.max_earlier_similarity.toFixed(3)}`;
+    document.getElementById("debug-chain-start-percent").value = p.start_percent;
+    document.getElementById("debug-min-previous").value = p.min_previous_similarity;
+    document.getElementById("debug-max-earlier").value = p.max_earlier_similarity;
+    document.getElementById("debug-chain-vocabulary").value = ({
+      "conceptnet-numberbatch-en": "3k",
+      "conceptnet-numberbatch-en-10k": "10k",
+      "conceptnet-numberbatch-en-20k": "expanded",
+    })[p.model_name];
+    chainGrid.replaceChildren();
+    round.candidates.forEach((candidate, index) => {
+      const card = document.createElement("div");
+      card.className = "calibration-candidate";
+      const label = document.createElement("div");
+      label.className = "calibration-label";
+      label.textContent = index === 0 ? "Current defaults" : `Noise ${index}`;
+      const button = document.createElement("button");
+      button.className = "calibration-choice";
+      button.disabled = !candidate.available;
+      button.textContent = candidate.combination?.join(" → ") || candidate.error || "Unavailable";
+      button.addEventListener("click", () => chooseChainCandidate(round.round_id, index));
+      card.append(label, button);
+      chainGrid.appendChild(card);
+    });
+  }
+
+  async function startChainCalibration() {
+    chainCalibrationButton.disabled = true;
+    chainCalibrationError.hidden = true;
+    try {
+      renderChainRound(await postJson(chainStartUrl, {
+        ...chainSettings(),
+        noise_stdev: readNumber("chain-noise-stdev"),
+        learning_rate: readNumber("chain-learning-rate"),
+      }));
+    } catch (error) {
+      chainCalibrationError.textContent = error.message;
+      chainCalibrationError.hidden = false;
+    } finally {
+      chainCalibrationButton.disabled = false;
+    }
+  }
+
+  async function chooseChainCandidate(roundId, index) {
+    chainGrid.querySelectorAll("button").forEach(button => button.disabled = true);
+    chainCalibrationError.hidden = true;
+    try {
+      renderChainRound(await postJson(chainSelectUrl(roundId), {candidate_index: index}));
+    } catch (error) {
+      chainCalibrationError.textContent = error.message;
+      chainCalibrationError.hidden = false;
+    }
+  }
+
+  chainCalibrationButton.addEventListener("click", startChainCalibration);
+  document.getElementById("chain-current-parameters").textContent =
+    `Current: starting words {{ chain_parameters.start_percent }}% · previous {{ chain_parameters.min_previous_similarity }} · earlier {{ chain_parameters.max_earlier_similarity }}`;
+
   function readNumber(id) {
     const input = document.getElementById(id);
     if (!input.checkValidity()) {
@@ -241,14 +326,7 @@
       event.currentTarget,
       document.getElementById("debug-chain-error"),
       document.getElementById("debug-chain-results"),
-      () => ({
-        type: "word_chain",
-        vocabulary: document.getElementById("debug-chain-vocabulary").value,
-        start_percent: readNumber("debug-chain-start-percent"),
-        length: readNumber("debug-chain-length"),
-        min_previous_similarity: readNumber("debug-min-previous"),
-        max_earlier_similarity: readNumber("debug-max-earlier"),
-      }),
+      () => ({type: "word_chain", ...chainSettings()}),
       (data, results) => {
         const chain = data.combinations[0].words.map(slot => slot.word);
         const row = document.createElement("div");
@@ -262,7 +340,7 @@
         if (!data.puzzle_valid) {
           const warning = document.createElement("div");
           warning.className = "chain-validation invalid";
-          warning.textContent = "This preview cannot be used in a puzzle with the current 10k vocabulary and fixed adjacent ≥ {{ chain_min_similarity }} / nonadjacent ≤ {{ chain_max_earlier_similarity }} thresholds.";
+          warning.textContent = "This preview cannot be used in a puzzle with the current vocabulary and minimum neighbor similarity.";
           results.appendChild(warning);
         }
       },
