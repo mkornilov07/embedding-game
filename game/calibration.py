@@ -36,6 +36,26 @@ LEARNING_RATE = 0.1
 CHAIN_PARAMETERS = ("start_percent", "min_previous_similarity", "max_earlier_similarity")
 
 
+def parameter_history(kind):
+    """Values committed by each calibration choice, oldest first."""
+    fields = CHAIN_PARAMETERS if kind == "word_chain" else CONTINUOUS_PARAMETERS
+    clicks = (
+        CalibrationClick.objects.filter(round__kind=kind, event="candidate_selected")
+        .select_related("round__calibrator")
+        .order_by("created_at", "pk")
+    )
+    return [
+        {
+            "at": click.created_at.isoformat(),
+            "calibrator": click.round.calibrator.username,
+            "parameters": {field: values[field] for field in fields},
+        }
+        for click in clicks
+        if (values := click.payload.get("parameters_after"))
+        and all(field in values for field in fields)
+    ]
+
+
 def get_defaults():
     defaults, _ = GenerationDefaults.objects.get_or_create(
         key="default",

@@ -12,7 +12,10 @@ from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import Duel, Puzzle, PuzzleCompletion, WordChain, WordChainSlot, WordSum
+from .models import (
+    CalibrationClick, CalibrationRound, Duel, Puzzle, PuzzleCompletion,
+    WordChain, WordChainSlot, WordSum,
+)
 from .calibration import (
     as_dict, chain_as_dict, generate_chain_round, generate_round,
     get_chain_defaults, get_defaults, select_candidate, select_chain_candidate,
@@ -217,6 +220,40 @@ class PuzzleCreationDefaultsTests(TestCase):
 
 
 class CalibrationTests(TestCase):
+    def test_parameter_history_uses_selected_clicks_for_each_playground(self):
+        admin = get_user_model().objects.create_user("history_admin", password="password", is_staff=True)
+        sum_values = as_dict(get_defaults())
+        chain_values = chain_as_dict(get_chain_defaults())
+        sum_round = CalibrationRound.objects.create(
+            calibrator=admin, kind="word_sum", parameters_before=sum_values,
+            noise_vectors=[], candidates=[],
+        )
+        chain_round = CalibrationRound.objects.create(
+            calibrator=admin, kind="word_chain", parameters_before=chain_values,
+            noise_vectors=[], candidates=[],
+        )
+        CalibrationClick.objects.create(
+            round=sum_round, event="round_started", payload={"parameters": sum_values},
+        )
+        CalibrationClick.objects.create(
+            round=sum_round, event="candidate_selected",
+            payload={"parameters_after": {**sum_values, "min_similarity": 0.35}},
+        )
+        CalibrationClick.objects.create(
+            round=chain_round, event="candidate_selected",
+            payload={"parameters_after": {**chain_values, "start_percent": 30}},
+        )
+
+        self.client.force_login(admin)
+        response = self.client.get(reverse("debug_tools"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["sum_history"]), 1)
+        self.assertEqual(response.context["sum_history"][0]["parameters"]["min_similarity"], 0.35)
+        self.assertEqual(len(response.context["chain_history"]), 1)
+        self.assertEqual(response.context["chain_history"][0]["parameters"]["start_percent"], 30)
+        self.assertContains(response, 'id="sum-parameter-history-plot"')
+        self.assertContains(response, 'id="chain-parameter-history-plot"')
+
     @patch("game.calibration.generate_word_sums")
     def test_rounds_store_candidates_and_selection(self, generate):
         generate.return_value = [{"type": "word_sum", "addend1": "a", "addend2": "b", "sum_word": "c"}]
@@ -276,6 +313,7 @@ class CalibrationTests(TestCase):
             data=json.dumps({"candidate_index": 0}), content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["history"]), 1)
         self.assertEqual(get_chain_defaults().start_percent, 25)
 
 

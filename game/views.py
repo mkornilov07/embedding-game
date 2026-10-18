@@ -389,6 +389,8 @@ def calibration_view(request):
         "top_vocab_options": (0, 1000, 3000, 5000, 10000),
         "refine_options": (0, 1, 2, 3),
         "chain_parameters": calibration.chain_as_dict(chain_defaults),
+        "sum_history": calibration.parameter_history("word_sum"),
+        "chain_history": calibration.parameter_history("word_chain"),
     })
 
 
@@ -492,6 +494,7 @@ def _calibration_round_payload(round_record):
         "learning_rate": round_record.learning_rate,
         "noise_vectors": round_record.noise_vectors,
         "candidates": round_record.candidates,
+        "history": calibration.parameter_history(round_record.kind),
     }
 
 

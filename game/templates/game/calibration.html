@@ -61,6 +61,10 @@
   <button class="btn btn-primary" id="start-calibration">Generate candidates</button>
   <div class="error" id="calibration-error" hidden></div>
   <div class="calibration-grid" id="candidate-grid"></div>
+  <h3>Parameter history</h3>
+  <p class="subtitle">Each point is a selected candidate. Hover for its date and value.</p>
+  <div class="parameter-history" id="sum-parameter-history-plot"></div>
+  {{ sum_history|json_script:"sum-parameter-history" }}
   </section>
 
   <section class="debug-section">
@@ -94,6 +98,10 @@
     <button class="btn btn-primary" id="start-chain-calibration">Generate candidates</button>
     <div class="error" id="chain-calibration-error" hidden></div>
     <div class="calibration-grid" id="chain-candidate-grid"></div>
+    <h3>Parameter history</h3>
+    <p class="subtitle">Each point is a selected candidate. Hover for its date and value.</p>
+    <div class="parameter-history" id="chain-parameter-history-plot"></div>
+    {{ chain_history|json_script:"chain-parameter-history" }}
     <h3>Generate word chains</h3>
     <p class="subtitle">Previewing does not update the defaults.</p>
     <button class="btn btn-ghost" id="debug-generate-chain">Generate word chain</button>
@@ -113,6 +121,91 @@
   const grid = document.getElementById("candidate-grid");
   const errorEl = document.getElementById("calibration-error");
   const startButton = document.getElementById("start-calibration");
+  const historyFields = {
+    word_sum: [
+      ["min_similarity", "Minimum similarity"],
+      ["min_refined_similarity", "Minimum refined similarity"],
+      ["min_gap_ratio", "Minimum gap ratio"],
+      ["max_synonym_similarity", "Maximum synonym similarity"],
+    ],
+    word_chain: [
+      ["start_percent", "Starting vocabulary %"],
+      ["min_previous_similarity", "Minimum previous similarity"],
+      ["max_earlier_similarity", "Maximum earlier similarity"],
+    ],
+  };
+
+  function svgNode(tag, attributes = {}, content = "") {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+    node.textContent = content;
+    return node;
+  }
+
+  function renderHistory(kind, history) {
+    const container = document.getElementById(`${kind === "word_sum" ? "sum" : "chain"}-parameter-history-plot`);
+    container.replaceChildren();
+    if (!history.length) {
+      container.textContent = "No calibration choices yet.";
+      return;
+    }
+    for (const [field, label] of historyFields[kind]) {
+      const points = history.map((entry, index) => ({
+        value: Number(entry.parameters[field]), index: index + 1,
+        at: entry.at, calibrator: entry.calibrator,
+      })).filter(point => Number.isFinite(point.value));
+      if (!points.length) continue;
+      const values = points.map(point => point.value);
+      const low = Math.min(...values);
+      const high = Math.max(...values);
+      const padding = Math.max((high - low) * 0.1, 0.01);
+      const min = low - padding;
+      const max = high + padding;
+      const x = index => points.length === 1 ? 192 : 48 + index * 288 / (points.length - 1);
+      const y = value => 105 - (value - min) * 90 / (max - min);
+
+      const card = document.createElement("div");
+      card.className = "parameter-history-card";
+      const heading = document.createElement("h4");
+      heading.textContent = `${label}: ${values.at(-1).toFixed(3)}`;
+      const svg = svgNode("svg", {
+        viewBox: "0 0 360 140", role: "img",
+        "aria-label": `${label} over ${points.length} calibration choices`,
+      });
+      svg.append(
+        svgNode("line", {x1: 48, y1: 15, x2: 48, y2: 105, class: "parameter-history-axis"}),
+        svgNode("line", {x1: 48, y1: 105, x2: 336, y2: 105, class: "parameter-history-axis"}),
+        svgNode("text", {x: 42, y: 18, class: "parameter-history-tick", "text-anchor": "end"}, max.toFixed(2)),
+        svgNode("text", {x: 42, y: 105, class: "parameter-history-tick", "text-anchor": "end"}, min.toFixed(2)),
+      );
+      if (points.length > 1) {
+        svg.appendChild(svgNode("polyline", {
+          points: points.map((point, index) => `${x(index)},${y(point.value)}`).join(" "),
+          class: "parameter-history-line",
+        }));
+      }
+      points.forEach((point, index) => {
+        const dot = svgNode("circle", {
+          cx: x(index), cy: y(point.value), r: 4, tabindex: 0, class: "parameter-history-dot",
+        });
+        dot.appendChild(svgNode("title", {},
+          `Choice ${point.index} · ${new Date(point.at).toLocaleString()} · ${point.calibrator}: ${point.value.toFixed(3)}`));
+        svg.appendChild(dot);
+      });
+      svg.appendChild(svgNode("text", {
+        x: points.length === 1 ? 192 : 48, y: 127,
+        class: "parameter-history-tick", "text-anchor": points.length === 1 ? "middle" : "start",
+      }, "1"));
+      if (points.length > 1) svg.appendChild(svgNode("text", {
+        x: 336, y: 127, class: "parameter-history-tick", "text-anchor": "end",
+      }, `${points.length}`));
+      card.append(heading, svg);
+      container.appendChild(card);
+    }
+  }
+
+  renderHistory("word_sum", JSON.parse(document.getElementById("sum-parameter-history").textContent));
+  renderHistory("word_chain", JSON.parse(document.getElementById("chain-parameter-history").textContent));
 
   function discreteParameters() {
     return {
@@ -138,6 +231,7 @@
 
   function renderRound(round) {
     renderParameters(round.parameters);
+    renderHistory("word_sum", round.history);
     document.getElementById("noise-stdev").value = round.noise_stdev;
     document.getElementById("learning-rate").value = round.learning_rate;
     grid.innerHTML = "";
@@ -208,6 +302,7 @@
 
   function renderChainRound(round) {
     const p = round.parameters;
+    renderHistory("word_chain", round.history);
     document.getElementById("chain-current-parameters").textContent =
       `Current: starting words ${p.start_percent.toFixed(1)}% · previous ${p.min_previous_similarity.toFixed(3)} · earlier ${p.max_earlier_similarity.toFixed(3)}`;
     document.getElementById("debug-chain-start-percent").value = p.start_percent;
