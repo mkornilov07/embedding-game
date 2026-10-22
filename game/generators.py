@@ -13,29 +13,20 @@ from gensim.models import KeyedVectors
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 AVAILABLE_MODELS = {
-    "word2vec-google-news-300": "Word2Vec Google News (300d)",
-    "glove-wiki-gigaword-50": "GloVe Wikipedia (50d)",
-    "glove-wiki-gigaword-100": "GloVe Wikipedia (100d)",
-    "glove-wiki-gigaword-200": "GloVe Wikipedia (200d)",
-    "glove-wiki-gigaword-300": "GloVe Wikipedia (300d)",
-    "glove-twitter-25": "GloVe Twitter (25d)",
-    "glove-twitter-50": "GloVe Twitter (50d)",
-    "glove-twitter-100": "GloVe Twitter (100d)",
-    "glove-twitter-200": "GloVe Twitter (200d)",
-    "fasttext-wiki-news-subwords-300": "FastText Wiki News (300d)",
-    "conceptnet-numberbatch-en": "ConceptNet Numberbatch (300d)",
+    "conceptnet-numberbatch-en-3k": "ConceptNet Numberbatch (3,000 words)",
+    "conceptnet-numberbatch-en-3k-abtt": "ConceptNet Numberbatch (3,000 words, ABTT)",
+    "conceptnet-numberbatch-en-10k": "ConceptNet Numberbatch (10,000 words)",
+    "conceptnet-numberbatch-en-10k-abtt": "ConceptNet Numberbatch (10,000 words, ABTT)",
+    "openai-text-embedding-3-large-subtlex-us-5000": (
+        "OpenAI text-embedding-3-large (5,000 words)"
+    ),
+    "openai-text-embedding-3-large-subtlex-us-5000-abtt": (
+        "OpenAI text-embedding-3-large (5,000 words, ABTT)"
+    ),
 }
 
-DEFAULT_MODEL = "conceptnet-numberbatch-en"
+DEFAULT_MODEL = "conceptnet-numberbatch-en-3k"
 
-
-def available_local_models():
-    """Subset of AVAILABLE_MODELS whose .kv file is present on disk."""
-    return {
-        key: label
-        for key, label in AVAILABLE_MODELS.items()
-        if os.path.exists(os.path.join(DATA_DIR, f"{key}.kv"))
-    }
 
 MIN_SIMILARITY_COSADD = 0.60
 MIN_REFINED_SIMILARITY_COSADD = 0.60
@@ -55,11 +46,9 @@ MAX_SYNONYM_SIMILARITY = 0.45
 MAX_ATTEMPTS_PER_RESULT = 300
 MAX_PARALLEL_SEARCHES = 4
 REFINE_ITERATIONS = 1
-DEFAULT_TOP_N_VOCAB = 3000
-WORD_CHAIN_3K_MODEL = "conceptnet-numberbatch-en"
-WORD_CHAIN_10K_MODEL = "conceptnet-numberbatch-en-10k"
+WORD_CHAIN_3K_MODEL = "conceptnet-numberbatch-en-3k-abtt"
+WORD_CHAIN_10K_MODEL = "conceptnet-numberbatch-en-10k-abtt"
 WORD_CHAIN_MODEL = WORD_CHAIN_10K_MODEL
-WORD_CHAIN_EXPANDED_MODEL = "conceptnet-numberbatch-en-20k"
 WORD_CHAIN_MIN_SIMILARITY = 0.47
 WORD_CHAIN_MAX_EARLIER_SIMILARITY = 0.31
 WORD_CHAIN_START_PERCENT = 20
@@ -70,15 +59,14 @@ _cache_lock = threading.Lock()
 _search_cache_lock = threading.Lock()
 
 
-def _load_model(model_name, abtt=False):
-    key = (model_name, abtt)
-    if key in _cache:
-        return _cache[key]
+def _load_model(model_name):
+    if model_name in _cache:
+        return _cache[model_name]
 
     with _cache_lock:
-        if key in _cache:
-            return _cache[key]
-        filename = f"{model_name}-abtt.kv" if abtt else f"{model_name}.kv"
+        if model_name in _cache:
+            return _cache[model_name]
+        filename = f"{model_name}.kv"
         path = os.path.join(DATA_DIR, filename)
         model = KeyedVectors.load(path)
         model.fill_norms()
@@ -90,14 +78,14 @@ def _load_model(model_name, abtt=False):
         )
         model._sum_searchers = {}
         vocab = list(model.index_to_key)
-        _cache[key] = (model, vocab)
+        _cache[model_name] = (model, vocab)
         return model, vocab
 
 
 def validate_word_chain(words, model_name=WORD_CHAIN_MODEL,
                         min_previous_similarity=WORD_CHAIN_MIN_SIMILARITY):
     """Check vocabulary and adjacent minimum similarity."""
-    model, _ = _load_model(model_name, abtt=True)
+    model, _ = _load_model(model_name)
     words = list(words)
     unknown = {
         index for index, word in enumerate(words)
@@ -147,9 +135,10 @@ def generate_word_chain(
     if not np.isfinite(start_percent) or not 0 < start_percent <= 100:
         raise ValueError("Starting vocabulary percentage must be greater than 0 and at most 100.")
 
-    model, vocab = _load_model(model_name, abtt=True)
+    model, vocab = _load_model(model_name)
     start_limit = math.ceil(len(vocab) * start_percent / 100)
-    if model_name in (WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL):
+    use_on_demand_similarities = len(vocab) > 3000 or model_name == WORD_CHAIN_10K_MODEL
+    if use_on_demand_similarities:
         @lru_cache(maxsize=32)
         def similarity_row(index):
             return np.clip(model.similar_by_key(vocab[index], topn=None), -1.0, 1.0)
@@ -422,24 +411,24 @@ def _try_word_sum(model, vocab_pool, similar, parameters, rng):
     }
 
 
-def generate_word_sums(count=5, model_name=None, related_pairs=None,
-                        sum_scoring_method=None, cosmul=None, abtt=None, top_n_vocab=None,
-                        refine_iterations=None,
-                        min_similarity=None,
-                        min_refined_similarity=None,
-                        min_gap_ratio=None,
-                        max_synonym_similarity=None,
-                        max_attempts_per_result=MAX_ATTEMPTS_PER_RESULT):
+def generate_word_sums(
+    count=5,
+    model_name=None,
+    related_pairs=None,
+    sum_scoring_method=None,
+    cosmul=None,
+    refine_iterations=None,
+    min_similarity=None,
+    min_refined_similarity=None,
+    min_gap_ratio=None,
+    max_synonym_similarity=None,
+    max_attempts_per_result=MAX_ATTEMPTS_PER_RESULT,
+):
     """Generate word sums using vector arithmetic.
 
     Args:
         sum_scoring_method: one of ``cosadd``, ``cosmul``, or ``raw_sum``.
         cosmul: deprecated compatibility option; selects ``cosmul`` or ``cosadd``.
-        abtt: if True, postprocess embeddings via all-but-the-top
-              (Mu & Viswanath 2018) — subtract mean, remove top D/100 PCs.
-        top_n_vocab: restrict seed vocabulary to the top-N most frequent tokens.
-                     KeyedVectors are ordered by frequency; this avoids
-                     long-tail noise. Pass 0 to disable.
         related_pairs: if True, prefer the most similar sampled addend that
                        still satisfies the near-orthogonality constraint.
         refine_iterations: number of substitution passes in _refine_triple.
@@ -454,21 +443,19 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
         sum_scoring_method = "cosmul" if cosmul else "cosadd"
 
     if any(value is None for value in (
-        model_name, related_pairs, sum_scoring_method, abtt, top_n_vocab,
+        model_name, related_pairs, sum_scoring_method,
         refine_iterations, min_similarity, min_refined_similarity,
         min_gap_ratio, max_synonym_similarity,
     )):
         try:
             from .models import GenerationDefaults
-            defaults = GenerationDefaults.objects.get(key="default")
+            defaults = GenerationDefaults.objects.get(key=model_name or DEFAULT_MODEL)
         except Exception:
             defaults = None
         if defaults:
             model_name = defaults.model_name if model_name is None else model_name
             related_pairs = defaults.related_pairs if related_pairs is None else related_pairs
             sum_scoring_method = defaults.sum_scoring_method if sum_scoring_method is None else sum_scoring_method
-            abtt = defaults.abtt if abtt is None else abtt
-            top_n_vocab = defaults.top_n_vocab if top_n_vocab is None else top_n_vocab
             refine_iterations = defaults.refine_iterations if refine_iterations is None else refine_iterations
             min_similarity = defaults.min_similarity if min_similarity is None else min_similarity
             min_refined_similarity = defaults.min_refined_similarity if min_refined_similarity is None else min_refined_similarity
@@ -481,14 +468,12 @@ def generate_word_sums(count=5, model_name=None, related_pairs=None,
         sum_scoring_method = "cosmul" if cosmul is None or cosmul else "cosadd"
     if sum_scoring_method not in SUM_SCORING_METHODS:
         raise ValueError(f"Unknown sum scoring method: {sum_scoring_method}")
-    abtt = True if abtt is None else abtt
-    top_n_vocab = DEFAULT_TOP_N_VOCAB if top_n_vocab is None else top_n_vocab
     refine_iterations = REFINE_ITERATIONS if refine_iterations is None else refine_iterations
     min_gap_ratio = MIN_GAP_RATIO if min_gap_ratio is None else min_gap_ratio
     max_synonym_similarity = MAX_SYNONYM_SIMILARITY if max_synonym_similarity is None else max_synonym_similarity
 
-    model, vocab = _load_model(model_name, abtt=abtt)
-    vocab_pool = vocab[:top_n_vocab] if top_n_vocab and top_n_vocab > 0 else vocab
+    model, vocab = _load_model(model_name)
+    vocab_pool = vocab
 
     similar = _similarity_search(model, sum_scoring_method)
     default_min_similarity, default_min_refined_similarity = SUM_SCORING_METHODS[sum_scoring_method]

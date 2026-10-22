@@ -32,16 +32,6 @@
       </select>
     </div>
     <div class="field">
-      <label for="abtt">All-but-the-top</label>
-      <select id="abtt"><option value="true"{% if parameters.abtt %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.abtt %} selected{% endif %}>No</option></select>
-    </div>
-    <div class="field">
-      <label for="top-n-vocab">Vocabulary size</label>
-      <select id="top-n-vocab">
-        {% for option in top_vocab_options %}<option value="{{ option }}"{% if option == parameters.top_n_vocab %} selected{% endif %}>{% if option == 0 %}Unlimited{% else %}{{ option }}{% endif %}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="field">
       <label for="refine-iterations">Refinement iterations</label>
       <select id="refine-iterations">
         {% for option in refine_options %}<option value="{{ option }}"{% if option == parameters.refine_iterations %} selected{% endif %}>{{ option }}</option>{% endfor %}
@@ -86,7 +76,7 @@
     <h2>Word-chain calibration</h2>
     <p class="subtitle">Choose a chain you prefer to update the generation defaults.</p>
     <div class="calibration-controls">
-      <div class="field"><label for="debug-chain-vocabulary">Vocabulary</label><select id="debug-chain-vocabulary"><option value="3k"{% if chain_parameters.model_name == "conceptnet-numberbatch-en" %} selected{% endif %}>Original (3k)</option><option value="10k"{% if chain_parameters.model_name == "conceptnet-numberbatch-en-10k" %} selected{% endif %}>Current game (10k)</option><option value="expanded"{% if chain_parameters.model_name == "conceptnet-numberbatch-en-20k" %} selected{% endif %}>Expanded (20k)</option></select></div>
+      <div class="field"><label for="debug-chain-vocabulary">Model</label><select id="debug-chain-vocabulary">{% for key, label in available_models.items %}<option value="{{ key }}"{% if chain_parameters.model_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
       <div class="field"><label for="debug-chain-start-percent">Starting words: top % of vocabulary</label><input id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="{{ chain_parameters.start_percent }}" required></div>
       <div class="field"><label for="debug-chain-length">Length</label><input id="debug-chain-length" type="number" min="2" step="1" value="5" required></div>
       <div class="field"><label for="debug-min-previous">Minimum similarity to previous word</label><input id="debug-min-previous" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.min_previous_similarity }}" required></div>
@@ -212,13 +202,20 @@
       model_name: document.getElementById("model-name").value,
       related_pairs: document.getElementById("related-pairs").value === "true",
       sum_scoring_method: document.getElementById("sum-scoring-method").value,
-      abtt: document.getElementById("abtt").value === "true",
-      top_n_vocab: parseInt(document.getElementById("top-n-vocab").value),
       refine_iterations: parseInt(document.getElementById("refine-iterations").value),
       noise_stdev: parseFloat(document.getElementById("noise-stdev").value),
       learning_rate: parseFloat(document.getElementById("learning-rate").value),
     };
   }
+
+  function reloadForSelectedDefaults() {
+    const query = new URLSearchParams(window.location.search);
+    query.set("model", document.getElementById("model-name").value);
+    query.set("chain_model", document.getElementById("debug-chain-vocabulary").value);
+    window.location.search = query.toString();
+  }
+  document.getElementById("model-name").addEventListener("change", reloadForSelectedDefaults);
+  document.getElementById("debug-chain-vocabulary").addEventListener("change", reloadForSelectedDefaults);
 
   function showError(message) {
     errorEl.textContent = message;
@@ -292,7 +289,7 @@
 
   function chainSettings() {
     return {
-      vocabulary: document.getElementById("debug-chain-vocabulary").value,
+      model_name: document.getElementById("debug-chain-vocabulary").value,
       start_percent: readNumber("debug-chain-start-percent"),
       length: readNumber("debug-chain-length"),
       min_previous_similarity: readNumber("debug-min-previous"),
@@ -308,11 +305,7 @@
     document.getElementById("debug-chain-start-percent").value = p.start_percent;
     document.getElementById("debug-min-previous").value = p.min_previous_similarity;
     document.getElementById("debug-max-earlier").value = p.max_earlier_similarity;
-    document.getElementById("debug-chain-vocabulary").value = ({
-      "conceptnet-numberbatch-en": "3k",
-      "conceptnet-numberbatch-en-10k": "10k",
-      "conceptnet-numberbatch-en-20k": "expanded",
-    })[p.model_name];
+    document.getElementById("debug-chain-vocabulary").value = p.model_name;
     chainGrid.replaceChildren();
     round.candidates.forEach((candidate, index) => {
       const card = document.createElement("div");

@@ -343,8 +343,15 @@
   /* Reset a single row's slot styling and unmark it from the solved group.
    * Call at the start of any row change to wipe stale check feedback. */
   function clearRowVisuals({ board, solved, comboIdx }) {
-    board.boxes(comboIdx).forEach(slot => slot.classList.remove(...SLOT_FEEDBACK_CLASSES));
-    board.links(comboIdx).forEach(link => link.classList.remove("chain-link-wrong"));
+    board.boxes(comboIdx).forEach(slot => {
+      slot.classList.remove(...SLOT_FEEDBACK_CLASSES);
+      slot.removeAttribute("title");
+    });
+    board.links(comboIdx).forEach(link => {
+      link.classList.remove("chain-link-wrong");
+      link.removeAttribute("title");
+      link.removeAttribute("aria-label");
+    });
     solved.markUnsolved(comboIdx);
   }
 
@@ -377,9 +384,20 @@
       if (greenSet.has(slotIdx)) box.classList.add("slot-correct");
       else if (yellowSet.has(slotIdx)) box.classList.add("slot-shuffled");
       else box.classList.add("slot-wrong");
+      if (combo.type === "word_chain" && !greenSet.has(slotIdx)) {
+        box.title = "This word isn't accepted in this chain.";
+      }
     });
     board.links(comboIdx).forEach((link, linkIdx) => {
-      link.classList.toggle("chain-link-wrong", invalidLinks.has(linkIdx));
+      const invalid = invalidLinks.has(linkIdx);
+      link.classList.toggle("chain-link-wrong", invalid);
+      if (invalid) {
+        link.title = "These neighboring words need a stronger connection.";
+        link.setAttribute("aria-label", link.title);
+      } else {
+        link.removeAttribute("title");
+        link.removeAttribute("aria-label");
+      }
     });
     const correct = greenSet.size === boxes.length && !invalidLinks.size;
     if (correct) solved.markSolved(comboIdx);

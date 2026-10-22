@@ -60,14 +60,6 @@
                 <option value="raw_sum"{% if generation_defaults.sum_scoring_method == "raw_sum" %} selected{% endif %}>Raw-vector-sum cosine</option>
               </select>
             </div>
-            <div class="gen-field" id="abtt-field">
-              <label for="abtt" title="Use the precomputed All-but-the-Top vectors for this model. Run build_models.py to create the sidecar vector files.">All-but-the-top</label>
-              <input type="checkbox" id="abtt"{% if generation_defaults.abtt %} checked{% endif %}>
-            </div>
-            <div class="gen-field" id="top-n-vocab-field">
-              <label for="top-n-vocab" title="Restrict seed vocabulary to the top-N most frequent tokens. KeyedVectors are sorted by frequency; capping avoids long-tail morphological junk and rare-word noise. Set to 0 for no cap.">Vocab top-N</label>
-              <input type="number" id="top-n-vocab" value="{{ generation_defaults.top_n_vocab }}" min="0" step="1000" inputmode="numeric">
-            </div>
             <div class="gen-field" id="refine-iters-field">
               <label for="refine-iters" title="Number of substitution passes that tighten each triple (C−B → A, C−A → B, A+B → C). Higher = more refined triples but slower and more can fail the synonym check.">Refine iters</label>
               <input type="range" id="refine-iters" min="0" max="20" value="{{ generation_defaults.refine_iterations }}">
@@ -107,6 +99,7 @@
     <button class="btn btn-primary btn-block" id="save-btn" onclick="savePuzzle()">{% if puzzle %}Save Changes{% else %}Save Puzzle{% endif %}</button>
   </div>
 </div>
+{{ generation_defaults_by_model|json_script:"generation-defaults-by-model" }}
 {% endblock %}
 
 {% block scripts %}
@@ -126,6 +119,7 @@
   const chainValidationVersions = new WeakMap();
   const chainSimilarityResults = new WeakMap();
   const chainInvalidLinks = new WeakMap();
+  const defaultsByModel = JSON.parse(document.getElementById("generation-defaults-by-model").textContent);
   showSimCb.addEventListener("change", () => {
     list.classList.toggle("show-metrics", showSimCb.checked);
   });
@@ -139,7 +133,19 @@
     advancedPanel.style.display = isCurated ? "none" : "block";
     genBtn.textContent = isCurated ? "Sample Word Sums" : "Generate Word Sums";
   }
-  modelSelect.addEventListener("change", updateGenUI);
+  modelSelect.addEventListener("change", () => {
+    updateGenUI();
+    const defaults = defaultsByModel[modelSelect.value];
+    if (!defaults) return;
+    document.getElementById("related-pairs").checked = defaults.related_pairs;
+    document.getElementById("sum-scoring-method").value = defaults.sum_scoring_method;
+    document.getElementById("refine-iters").value = defaults.refine_iterations;
+    document.getElementById("refine-iters-val").textContent = defaults.refine_iterations;
+    document.getElementById("min-sim").value = defaults.min_similarity;
+    document.getElementById("min-refined-sim").value = defaults.min_refined_similarity;
+    document.getElementById("min-gap-ratio").value = defaults.min_gap_ratio;
+    document.getElementById("max-syn-sim").value = defaults.max_synonym_similarity;
+  });
   updateGenUI();
 
   const refineIters = document.getElementById("refine-iters");
@@ -342,8 +348,6 @@
     const count = parseInt(document.getElementById("gen-count").value) || 5;
     const relatedPairs = document.getElementById("related-pairs").checked;
     const sumScoringMethod = scoringMethod.value;
-    const abtt = document.getElementById("abtt").checked;
-    const topNVocab = parseInt(document.getElementById("top-n-vocab").value) || 0;
     const refineIterations = parseInt(refineIters.value);
     const minSimilarity = parseFloat(minSimInput.value);
     const minRefinedSimilarity = parseFloat(minRefinedSimInput.value);
@@ -361,7 +365,7 @@
       body: JSON.stringify({
         type: "word_sum", count, model,
         related_pairs: relatedPairs,
-        sum_scoring_method: sumScoringMethod, abtt, top_n_vocab: topNVocab,
+        sum_scoring_method: sumScoringMethod,
         refine_iterations: refineIterations,
         min_similarity: minSimilarity,
         min_refined_similarity: minRefinedSimilarity,

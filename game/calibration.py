@@ -9,15 +9,17 @@ from django.utils import timezone
 
 from .generators import (
     DEFAULT_MODEL,
-    DEFAULT_TOP_N_VOCAB,
     DEFAULT_SUM_SCORING_METHOD,
     MAX_SYNONYM_SIMILARITY,
     MIN_GAP_RATIO,
     MIN_REFINED_SIMILARITY_COSMUL,
     MIN_SIMILARITY_COSMUL,
     REFINE_ITERATIONS,
-    WORD_CHAIN_MODEL, WORD_CHAIN_START_PERCENT, WORD_CHAIN_MIN_SIMILARITY,
-    WORD_CHAIN_MAX_EARLIER_SIMILARITY, generate_word_chain,
+    WORD_CHAIN_MODEL,
+    WORD_CHAIN_START_PERCENT,
+    WORD_CHAIN_MIN_SIMILARITY,
+    WORD_CHAIN_MAX_EARLIER_SIMILARITY,
+    generate_word_chain,
     generate_word_sums,
 )
 from .models import CalibrationClick, CalibrationRound, GenerationDefaults, WordChainDefaults
@@ -36,14 +38,15 @@ LEARNING_RATE = 0.1
 CHAIN_PARAMETERS = ("start_percent", "min_previous_similarity", "max_earlier_similarity")
 
 
-def parameter_history(kind):
+def parameter_history(kind, model_name=None):
     """Values committed by each calibration choice, oldest first."""
     fields = CHAIN_PARAMETERS if kind == "word_chain" else CONTINUOUS_PARAMETERS
-    clicks = (
-        CalibrationClick.objects.filter(round__kind=kind, event="candidate_selected")
-        .select_related("round__calibrator")
-        .order_by("created_at", "pk")
+    clicks = CalibrationClick.objects.filter(
+        round__kind=kind, event="candidate_selected",
     )
+    if model_name:
+        clicks = clicks.filter(round__parameters_before__model_name=model_name)
+    clicks = clicks.select_related("round__calibrator").order_by("created_at", "pk")
     return [
         {
             "at": click.created_at.isoformat(),
@@ -56,13 +59,13 @@ def parameter_history(kind):
     ]
 
 
-def get_defaults():
+def get_defaults(model_name=None):
+    model_name = model_name or DEFAULT_MODEL
     defaults, _ = GenerationDefaults.objects.get_or_create(
-        key="default",
+        key=model_name,
         defaults={
-            "model_name": DEFAULT_MODEL,
+            "model_name": model_name,
             "sum_scoring_method": DEFAULT_SUM_SCORING_METHOD,
-            "top_n_vocab": DEFAULT_TOP_N_VOCAB,
             "refine_iterations": REFINE_ITERATIONS,
             "min_similarity": MIN_SIMILARITY_COSMUL,
             "min_refined_similarity": MIN_REFINED_SIMILARITY_COSMUL,
@@ -77,17 +80,18 @@ def as_dict(defaults):
     return {
         field: getattr(defaults, field)
         for field in (
-            "model_name", "related_pairs", "sum_scoring_method", "abtt", "top_n_vocab",
+            "model_name", "related_pairs", "sum_scoring_method",
             "refine_iterations", *CONTINUOUS_PARAMETERS,
         )
     }
 
 
-def get_chain_defaults():
+def get_chain_defaults(model_name=None):
+    model_name = model_name or WORD_CHAIN_MODEL
     defaults, _ = WordChainDefaults.objects.get_or_create(
-        key="default",
+        key=model_name,
         defaults={
-            "model_name": WORD_CHAIN_MODEL,
+            "model_name": model_name,
             "start_percent": WORD_CHAIN_START_PERCENT,
             "min_previous_similarity": WORD_CHAIN_MIN_SIMILARITY,
             "max_earlier_similarity": WORD_CHAIN_MAX_EARLIER_SIMILARITY,
@@ -168,7 +172,7 @@ def select_chain_candidate(user, round_id, candidate_index):
     noise = [value * round_record.learning_rate
              for value in round_record.noise_vectors[candidate_index]]
     parameters_after = _chain_with_noise(round_record.parameters_before, noise)
-    defaults = get_chain_defaults()
+    defaults = get_chain_defaults(round_record.parameters_before["model_name"])
     for field, value in parameters_after.items():
         setattr(defaults, field, value)
     defaults.save()
@@ -250,7 +254,7 @@ def select_candidate(user, round_id, candidate_index):
         round_record.parameters_before,
         [value * round_record.learning_rate for value in noise],
     )
-    defaults = get_defaults()
+    defaults = get_defaults(round_record.parameters_before["model_name"])
     for field, value in parameters_after.items():
         setattr(defaults, field, value)
     defaults.save()

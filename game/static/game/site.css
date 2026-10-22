@@ -917,7 +917,14 @@ input.chain-type-input.slot-wrong, .chain-fixed.slot-wrong { border-color: var(-
 input.chain-type-input.slot-shuffled, input.chain-type-input.slot-yellow { border-color: var(--color-warn); background: var(--color-warn-soft); color: var(--color-warn-text); }
 input.chain-type-input.slot-yellow { box-shadow: 0 0 0 3px rgb(245 158 11 / 0.2); }
 .operator { color: var(--color-text-muted); font-size: clamp(1.05rem, 3vw, 1.35rem); }
-.operator.chain-link-wrong { color: var(--color-danger); }
+.operator.chain-link-wrong {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-radius: 999px;
+  padding-inline: 0.35em;
+  font-weight: 700;
+}
+.error-check-help { color: var(--color-text-muted); font-size: 0.875rem; }
 
 /* Solved-section collapsible */
 .solved-section {

@@ -14,9 +14,11 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .generators import (
-    WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL,
+    AVAILABLE_MODELS,
+    WORD_CHAIN_3K_MODEL,
+    WORD_CHAIN_10K_MODEL,
     WORD_CHAIN_MAX_ATTEMPTS,
-    available_local_models, generate_curated_word_sums, generate_word_chain,
+    generate_curated_word_sums, generate_word_chain,
     generate_word_sums, validate_word_chain,
 )
 from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordChain, WordChainSlot, WordSum
@@ -69,7 +71,7 @@ def puzzle_list(request):
         "puzzles": puzzles,
         "dropdown_puzzles": dropdown_puzzles,
         "completed_ids": completed_ids,
-        "available_models": available_local_models(),
+        "available_models": AVAILABLE_MODELS,
         "incoming_invites": incoming_invites,
         "outgoing_invite": outgoing_invite,
         "active_duel": active_duel,
@@ -226,8 +228,11 @@ def _editable_puzzle_or_404(request, pk):
 def create_puzzle(request, pk=None):
     defaults = calibration.get_defaults()
     chain_defaults = calibration.get_chain_defaults()
-    models = available_local_models()
-    models.setdefault(defaults.model_name, defaults.model_name)
+    models = AVAILABLE_MODELS
+    defaults_by_model = {
+        model_name: calibration.as_dict(calibration.get_defaults(model_name))
+        for model_name in models
+    }
     existing = None
     initial_combinations = []
     if pk is not None:
@@ -255,6 +260,7 @@ def create_puzzle(request, pk=None):
     return render(request, "game/create_puzzle.html", {
         "available_models": models,
         "generation_defaults": calibration.as_dict(defaults),
+        "generation_defaults_by_model": defaults_by_model,
         "puzzle": existing,
         "combinations_json": json.dumps(initial_combinations),
         "chain_min_similarity": chain_defaults.min_previous_similarity,
@@ -379,18 +385,22 @@ def pin_puzzle(request, pk):
 
 @staff_member_required
 def calibration_view(request):
-    defaults = calibration.get_defaults()
-    chain_defaults = calibration.get_chain_defaults()
-    models = available_local_models()
-    models.setdefault(defaults.model_name, defaults.model_name)
+    model_name = request.GET.get("model")
+    chain_model = request.GET.get("chain_model")
+    if model_name not in AVAILABLE_MODELS:
+        model_name = None
+    if chain_model not in AVAILABLE_MODELS:
+        chain_model = None
+    defaults = calibration.get_defaults(model_name)
+    chain_defaults = calibration.get_chain_defaults(chain_model)
+    models = AVAILABLE_MODELS
     return render(request, "game/calibration.html", {
         "parameters": calibration.as_dict(defaults),
         "available_models": models,
-        "top_vocab_options": (0, 1000, 3000, 5000, 10000),
         "refine_options": (0, 1, 2, 3),
         "chain_parameters": calibration.chain_as_dict(chain_defaults),
-        "sum_history": calibration.parameter_history("word_sum"),
-        "chain_history": calibration.parameter_history("word_chain"),
+        "sum_history": calibration.parameter_history("word_sum", defaults.model_name),
+        "chain_history": calibration.parameter_history("word_chain", chain_defaults.model_name),
     })
 
 
@@ -399,17 +409,17 @@ def calibration_view(request):
 def start_calibration(request):
     try:
         data = json.loads(request.body)
-        defaults = calibration.get_defaults()
+        if data.get("model_name") not in AVAILABLE_MODELS:
+            raise ValueError("Unknown embedding model.")
+        defaults = calibration.get_defaults(data["model_name"])
         parameters = calibration.as_dict(defaults)
         parameters.update({
-            "model_name": data["model_name"],
+            "model_name": defaults.model_name,
             "related_pairs": bool(data["related_pairs"]),
             "sum_scoring_method": data.get(
                 "sum_scoring_method",
                 "cosmul" if data.get("cosmul", True) else "cosadd",
             ),
-            "abtt": bool(data["abtt"]),
-            "top_n_vocab": int(data["top_n_vocab"]),
             "refine_iterations": int(data["refine_iterations"]),
         })
         noise_stdev = float(data.get("noise_stdev", calibration.NOISE_STDEV))
@@ -451,12 +461,16 @@ def select_calibration_candidate(request, pk):
 def start_chain_calibration(request):
     try:
         data = json.loads(request.body)
-        parameters = calibration.chain_as_dict(calibration.get_chain_defaults())
-        parameters.update({
-            "model_name": {
+        selected_model = data.get("model_name")
+        if not selected_model:
+            selected_model = {
                 "3k": WORD_CHAIN_3K_MODEL, "10k": WORD_CHAIN_10K_MODEL,
-                "expanded": WORD_CHAIN_EXPANDED_MODEL,
-            }[data["vocabulary"]],
+            }.get(data.get("vocabulary"))
+        if selected_model not in AVAILABLE_MODELS:
+            raise ValueError("Unknown embedding model.")
+        parameters = calibration.chain_as_dict(calibration.get_chain_defaults(selected_model))
+        parameters.update({
+            "model_name": selected_model,
             "start_percent": float(data["start_percent"]),
             "min_previous_similarity": float(data["min_previous_similarity"]),
             "max_earlier_similarity": float(data["max_earlier_similarity"]),
@@ -494,7 +508,9 @@ def _calibration_round_payload(round_record):
         "learning_rate": round_record.learning_rate,
         "noise_vectors": round_record.noise_vectors,
         "candidates": round_record.candidates,
-        "history": calibration.parameter_history(round_record.kind),
+        "history": calibration.parameter_history(
+            round_record.kind, round_record.parameters_before.get("model_name"),
+        ),
     }
 
 
@@ -514,8 +530,6 @@ def generate_combinations(request):
     sum_scoring_method = data.get("sum_scoring_method")
     if sum_scoring_method is None and "cosmul" in data:
         sum_scoring_method = "cosmul" if data["cosmul"] else "cosadd"
-    abtt = data.get("abtt", True)
-    top_n_vocab = int(data.get("top_n_vocab", 3000))
     refine_iterations = int(data.get("refine_iterations", 1))
     min_similarity = data.get("min_similarity")
     min_refined_similarity = data.get("min_refined_similarity")
@@ -525,38 +539,41 @@ def generate_combinations(request):
     if gen_type == "word_chain":
         chain_defaults = calibration.get_chain_defaults()
         if any(key in data for key in (
-            "min_previous_similarity", "max_earlier_similarity", "vocabulary", "start_percent",
+            "min_previous_similarity", "max_earlier_similarity", "vocabulary", "model_name", "start_percent",
         )) and not request.user.is_staff:
             return JsonResponse({"error": "Admins only."}, status=403)
         try:
             vocabulary = data.get("vocabulary", "standard")
-            model_name = {
+            model_aliases = {
                 "standard": chain_defaults.model_name,
                 "3k": WORD_CHAIN_3K_MODEL,
                 "10k": WORD_CHAIN_10K_MODEL,
-                "expanded": WORD_CHAIN_EXPANDED_MODEL,
-            }.get(vocabulary)
+            }
+            model_name = data.get("model_name") or model_aliases.get(
+                vocabulary, vocabulary if vocabulary in AVAILABLE_MODELS else None,
+            )
             if model_name is None:
                 raise ValueError("Unknown word-chain vocabulary.")
+            selected_chain_defaults = calibration.get_chain_defaults(model_name)
             chain_length = int(data.get("length", 5))
             if chain_length < 2:
                 raise ValueError("A word chain must contain at least two words.")
             chain = generate_word_chain(
                 chain_length,
                 min_previous_similarity=data.get(
-                    "min_previous_similarity", chain_defaults.min_previous_similarity,
+                    "min_previous_similarity", selected_chain_defaults.min_previous_similarity,
                 ),
                 max_earlier_similarity=data.get(
-                    "max_earlier_similarity", chain_defaults.max_earlier_similarity,
+                    "max_earlier_similarity", selected_chain_defaults.max_earlier_similarity,
                 ),
                 model_name=model_name,
-                start_percent=data.get("start_percent", chain_defaults.start_percent),
+                start_percent=data.get("start_percent", selected_chain_defaults.start_percent),
             )
         except (TypeError, ValueError) as error:
             return JsonResponse({"error": str(error)}, status=400)
         except FileNotFoundError:
             return JsonResponse({
-                "error": f"Missing data/{model_name}-abtt.kv.",
+                "error": f"Missing data/{model_name}.kv.",
             }, status=400)
         if chain is None:
             return JsonResponse({"error": f"Could not generate a chain after {WORD_CHAIN_MAX_ATTEMPTS} attempts."}, status=400)
@@ -566,7 +583,7 @@ def generate_combinations(request):
         }]}
         if request.user.is_staff:
             preview = validate_word_chain(chain, model_name=model_name,
-                                          min_previous_similarity=chain_defaults.min_previous_similarity)
+                                          min_previous_similarity=selected_chain_defaults.min_previous_similarity)
             puzzle_valid = validate_word_chain(
                 chain, model_name=chain_defaults.model_name,
                 min_previous_similarity=chain_defaults.min_previous_similarity,
@@ -578,10 +595,11 @@ def generate_combinations(request):
         if model_name == "curated":
             combos = generate_curated_word_sums(count)
         else:
+            if model_name is not None and model_name not in AVAILABLE_MODELS:
+                return JsonResponse({"error": "Unknown embedding model."}, status=400)
             kwargs = dict(
                 model_name=model_name, related_pairs=related_pairs,
                 sum_scoring_method=sum_scoring_method,
-                abtt=abtt, top_n_vocab=top_n_vocab,
                 refine_iterations=refine_iterations,
                 min_similarity=min_similarity,
                 min_refined_similarity=min_refined_similarity,

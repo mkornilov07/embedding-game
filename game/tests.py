@@ -18,10 +18,10 @@ from .models import (
 )
 from .calibration import (
     as_dict, chain_as_dict, generate_chain_round, generate_round,
-    get_chain_defaults, get_defaults, select_candidate, select_chain_candidate,
+    get_chain_defaults, get_defaults, parameter_history, select_candidate, select_chain_candidate,
 )
 from .generators import (
-    WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL,
+    WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL,
     WORD_CHAIN_MAX_ATTEMPTS, WORD_CHAIN_MAX_EARLIER_SIMILARITY, WORD_CHAIN_MIN_SIMILARITY,
     _best_arrangement, _similarity_search,
     generate_word_chain, validate_word_chain,
@@ -194,11 +194,8 @@ class PuzzleCreationDefaultsTests(TestCase):
     def test_form_uses_current_database_generation_defaults(self):
         user = get_user_model().objects.create_user("creator", password="password")
         defaults = get_defaults()
-        defaults.model_name = "glove-twitter-50"
         defaults.related_pairs = False
         defaults.sum_scoring_method = "raw_sum"
-        defaults.abtt = False
-        defaults.top_n_vocab = 1500
         defaults.refine_iterations = 2
         defaults.min_similarity = 0.37
         defaults.min_refined_similarity = 0.42
@@ -211,15 +208,35 @@ class PuzzleCreationDefaultsTests(TestCase):
         response = client.get(reverse("create_puzzle"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'value="glove-twitter-50" selected')
+        self.assertContains(response, 'value="conceptnet-numberbatch-en-3k" selected')
         self.assertContains(response, 'value="raw_sum" selected')
         self.assertContains(response, '<input type="checkbox" id="related-pairs">')
-        self.assertContains(response, '<input type="checkbox" id="abtt">')
-        for value in ("1500", "2", "0.37", "0.42", "1.15", "0.31"):
+        self.assertNotContains(response, "Vocab top-N")
+        for value in ("2", "0.37", "0.42", "1.15", "0.31"):
             self.assertContains(response, f'value="{value}"')
 
 
 class CalibrationTests(TestCase):
+    def test_embedding_files_have_independent_default_rows(self):
+        conceptnet = get_defaults("conceptnet-numberbatch-en-3k")
+        openai = get_defaults("openai-text-embedding-3-large-subtlex-us-5000")
+        openai_abtt = get_defaults("openai-text-embedding-3-large-subtlex-us-5000-abtt")
+        openai.min_similarity = 0.91
+        openai.save()
+
+        self.assertNotEqual(conceptnet.pk, openai.pk)
+        self.assertNotEqual(openai.pk, openai_abtt.pk)
+        self.assertNotEqual(get_defaults("conceptnet-numberbatch-en-3k").min_similarity, 0.91)
+        self.assertNotEqual(openai_abtt.min_similarity, 0.91)
+        self.assertEqual(get_defaults(openai.model_name).min_similarity, 0.91)
+
+        chain_defaults = get_chain_defaults("conceptnet-numberbatch-en-10k-abtt")
+        chain_defaults.start_percent = 35
+        chain_defaults.save()
+        self.assertNotEqual(
+            get_chain_defaults("conceptnet-numberbatch-en-3k-abtt").start_percent, 35,
+        )
+
     def test_parameter_history_uses_selected_clicks_for_each_playground(self):
         admin = get_user_model().objects.create_user("history_admin", password="password", is_staff=True)
         sum_values = as_dict(get_defaults())
@@ -253,6 +270,25 @@ class CalibrationTests(TestCase):
         self.assertEqual(response.context["chain_history"][0]["parameters"]["start_percent"], 30)
         self.assertContains(response, 'id="sum-parameter-history-plot"')
         self.assertContains(response, 'id="chain-parameter-history-plot"')
+
+    def test_parameter_history_is_scoped_to_selected_embedding_file(self):
+        admin = get_user_model().objects.create_user("model_history_admin", is_staff=True)
+        for model_name in ("conceptnet-numberbatch-en-3k", "openai-text-embedding-3-large-subtlex-us-5000"):
+            parameters = as_dict(get_defaults(model_name))
+            round_record = CalibrationRound.objects.create(
+                calibrator=admin, parameters_before=parameters, noise_vectors=[], candidates=[],
+            )
+            CalibrationClick.objects.create(
+                round=round_record, event="candidate_selected",
+                payload={"parameters_after": {**parameters, "min_similarity": 0.4}},
+            )
+
+        self.assertEqual(
+            len(parameter_history("word_sum", "conceptnet-numberbatch-en-3k")), 1,
+        )
+        self.assertEqual(
+            len(parameter_history("word_sum", "openai-text-embedding-3-large-subtlex-us-5000")), 1,
+        )
 
     @patch("game.calibration.generate_word_sums")
     def test_rounds_store_candidates_and_selection(self, generate):
@@ -451,7 +487,7 @@ class WordChainTests(TestCase):
         self.assertEqual(WORD_CHAIN_MAX_EARLIER_SIMILARITY, 0.31)
         with patch("game.generators.random.choice", return_value=0):
             chain = generate_word_chain(3)
-        self.model_loader.assert_called_with(WORD_CHAIN_10K_MODEL, abtt=True)
+        self.model_loader.assert_called_with(WORD_CHAIN_10K_MODEL)
         self.assertEqual(len(chain), 3)
         self.assertEqual(len(set(chain)), 3)
         self.assertTrue(validate_word_chain(chain)["valid"])
@@ -489,7 +525,7 @@ class WordChainTests(TestCase):
 
     def test_starting_word_uses_top_percentage_for_each_vocabulary(self):
         for model_name in (
-            WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL,
+            WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL,
         ):
             for percent, expected in ((20, "sun"), (100, "rain")):
                 with self.subTest(model_name=model_name, percent=percent):
@@ -504,15 +540,13 @@ class WordChainTests(TestCase):
             with self.assertRaises(ValueError):
                 generate_word_chain(3, start_percent=percent)
 
-    def test_expanded_generators_use_on_demand_similarities(self):
-        for model_name in (WORD_CHAIN_10K_MODEL, WORD_CHAIN_EXPANDED_MODEL):
-            with self.subTest(model_name=model_name):
-                with patch.object(self.model, "similar_by_key", wraps=self.model.similar_by_key) as similar:
-                    with patch("game.generators.random.choice", return_value=0):
-                        chain = generate_word_chain(3, model_name=model_name)
-                self.assertTrue(similar.called)
-                self.assertTrue(validate_word_chain(chain, model_name=model_name)["valid"])
-                self.assertFalse(hasattr(self.model, "_chain_similarities"))
+    def test_10k_generator_uses_on_demand_similarities(self):
+        with patch.object(self.model, "similar_by_key", wraps=self.model.similar_by_key) as similar:
+            with patch("game.generators.random.choice", return_value=0):
+                chain = generate_word_chain(3, model_name=WORD_CHAIN_10K_MODEL)
+        self.assertTrue(similar.called)
+        self.assertTrue(validate_word_chain(chain, model_name=WORD_CHAIN_10K_MODEL)["valid"])
+        self.assertFalse(hasattr(self.model, "_chain_similarities"))
 
     def test_debug_tools_and_custom_chain_settings_require_admin(self):
         user = get_user_model().objects.create_user("debug_user", password="password")
@@ -536,9 +570,9 @@ class WordChainTests(TestCase):
         self.assertContains(page, "Word-sum calibration")
         self.assertContains(page, "Generate word sums")
         self.assertContains(page, "Generate word chains")
-        self.assertContains(page, '<option value="3k">Original (3k)</option>')
-        self.assertContains(page, '<option value="10k" selected>Current game (10k)</option>')
-        self.assertContains(page, '<option value="expanded">Expanded (20k)</option>')
+        self.assertContains(page, '<option value="conceptnet-numberbatch-en-3k-abtt"')
+        self.assertContains(page, '<option value="conceptnet-numberbatch-en-10k-abtt" selected>ConceptNet Numberbatch (10,000 words, ABTT)</option>')
+        self.assertContains(page, '<option value="openai-text-embedding-3-large-subtlex-us-5000">')
         self.assertContains(page, 'id="debug-chain-start-percent" type="number" min="0.01" max="100" step="any" value="20.0"')
         self.assertContains(page, 'id="debug-min-previous" type="number" min="-1" max="1" step="any" value="0.47"')
         self.assertContains(page, 'id="debug-max-earlier" type="number" min="-1" max="1" step="any" value="0.31"')
@@ -550,19 +584,19 @@ class WordChainTests(TestCase):
         self.assertTrue(all(score >= 0.8 for score in response.json()["similarities"]))
         self.assertTrue(response.json()["puzzle_valid"])
 
-        for vocabulary in ("3k", "10k", "expanded"):
-            expanded = json.dumps({
+        for vocabulary in ("3k", "10k"):
+            payload = json.dumps({
                 "type": "word_chain", "length": 3,
                 "vocabulary": vocabulary, "start_percent": 100,
             })
             self.client.force_login(user)
             self.assertEqual(self.client.post(
-                reverse("generate_combinations"), data=expanded, content_type="application/json",
+                reverse("generate_combinations"), data=payload, content_type="application/json",
             ).status_code, 403)
             self.client.force_login(admin)
             with patch("game.generators.random.choice", return_value=3):
                 response = self.client.post(
-                    reverse("generate_combinations"), data=expanded, content_type="application/json",
+                    reverse("generate_combinations"), data=payload, content_type="application/json",
                 )
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json()["puzzle_valid"])
@@ -578,8 +612,8 @@ class WordChainTests(TestCase):
         response = self.client.post(
             reverse("generate_combinations"),
             data=json.dumps({
-                "type": "word_sum", "model": "conceptnet-numberbatch-en", "count": 1,
-                "top_n_vocab": 0, "refine_iterations": 0,
+                "type": "word_sum", "model": "conceptnet-numberbatch-en-3k", "count": 1,
+                "refine_iterations": 0,
                 "min_similarity": 0.2, "min_refined_similarity": 0.3,
                 "min_gap_ratio": 1.1, "max_synonym_similarity": 0.6,
             }),
@@ -587,7 +621,7 @@ class WordChainTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["combinations"]), 1)
-        self.assertEqual(generate.call_args.kwargs["top_n_vocab"], 0)
+        self.assertNotIn("top_n_vocab", generate.call_args.kwargs)
         self.assertEqual(generate.call_args.kwargs["refine_iterations"], 0)
         self.assertEqual(generate.call_args.kwargs["min_gap_ratio"], 1.1)
 

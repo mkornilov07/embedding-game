@@ -20,8 +20,8 @@ class Puzzle(models.Model):
 class GenerationDefaults(models.Model):
     """The active defaults used by embedding-based word-sum generation."""
 
-    key = models.CharField(max_length=32, unique=True, default="default")
-    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en")
+    key = models.CharField(max_length=100, unique=True, default="default")
+    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en-3k")
     related_pairs = models.BooleanField(default=True)
     sum_scoring_method = models.CharField(
         max_length=16,
@@ -32,8 +32,6 @@ class GenerationDefaults(models.Model):
         ],
         default="cosmul",
     )
-    abtt = models.BooleanField(default=True)
-    top_n_vocab = models.PositiveIntegerField(default=3000)
     refine_iterations = models.PositiveIntegerField(default=1)
     min_similarity = models.FloatField(default=0.25)
     min_refined_similarity = models.FloatField(default=0.5)
@@ -46,8 +44,8 @@ class GenerationDefaults(models.Model):
 
 
 class WordChainDefaults(models.Model):
-    key = models.CharField(max_length=32, unique=True, default="default")
-    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en-10k")
+    key = models.CharField(max_length=100, unique=True, default="default")
+    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en-10k-abtt")
     start_percent = models.FloatField(default=20)
     min_previous_similarity = models.FloatField(default=0.47)
     max_earlier_similarity = models.FloatField(default=0.31)
