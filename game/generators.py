@@ -31,7 +31,7 @@ AVAILABLE_MODELS = {
     ),
 }
 
-DEFAULT_MODEL = "conceptnet-numberbatch-en-3k-abtt"
+DEFAULT_MODEL = "conceptnet-numberbatch-en-3k"
 
 
 MIN_SIMILARITY_COSADD = 0.60

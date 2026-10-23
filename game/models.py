@@ -21,7 +21,7 @@ class GenerationDefaults(models.Model):
     """The active defaults used by embedding-based word-sum generation."""
 
     key = models.CharField(max_length=100, unique=True, default="default")
-    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en-3k-abtt")
+    model_name = models.CharField(max_length=100, default="conceptnet-numberbatch-en-3k")
     related_pairs = models.BooleanField(default=True)
     sum_scoring_method = models.CharField(
         max_length=16,

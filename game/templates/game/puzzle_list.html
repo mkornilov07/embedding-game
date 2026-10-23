@@ -157,7 +157,7 @@
           <select id="model-select">
             <option value="curated">Pre-generated</option>
             {% for key, label in available_models.items %}
-              <option value="{{ key }}" {% if key == "conceptnet-numberbatch-en-3k-abtt" %}selected{% endif %}>{{ label }}</option>
+              <option value="{{ key }}" {% if key == "conceptnet-numberbatch-en-3k" %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
