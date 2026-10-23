@@ -225,7 +225,7 @@ class PuzzleCreationDefaultsTests(TestCase):
         response = client.get(reverse("create_puzzle"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'value="conceptnet-numberbatch-en-3k" selected')
+        self.assertContains(response, 'value="conceptnet-numberbatch-en-3k-abtt" selected')
         self.assertContains(response, 'value="raw_sum" selected')
         self.assertContains(response, '<input type="checkbox" id="related-pairs">')
         self.assertNotContains(response, "Vocab top-N")
