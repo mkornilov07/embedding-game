@@ -7,7 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.db import transaction
 from django.db.models import Count, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -21,7 +21,10 @@ from .generators import (
     generate_curated_word_sums, generate_word_chain,
     generate_word_sums, validate_word_chain,
 )
-from .models import Duel, DuelProgress, Puzzle, PuzzleCompletion, WordChain, WordChainSlot, WordSum
+from .models import (
+    Duel, DuelProgress, PreferenceLabelExample, Puzzle, PuzzleCompletion,
+    WordChain, WordChainSlot, WordSum,
+)
 from . import services
 from . import calibration
 
@@ -394,6 +397,14 @@ def calibration_view(request):
     defaults = calibration.get_defaults(model_name)
     chain_defaults = calibration.get_chain_defaults(chain_model)
     models = AVAILABLE_MODELS
+    queue = [
+        {
+            "id": item.pk,
+            "example_type": item.example_type,
+            "words": item.words,
+        }
+        for item in PreferenceLabelExample.objects.filter(label__isnull=True)[:100]
+    ]
     return render(request, "game/calibration.html", {
         "parameters": calibration.as_dict(defaults),
         "available_models": models,
@@ -401,7 +412,121 @@ def calibration_view(request):
         "chain_parameters": calibration.chain_as_dict(chain_defaults),
         "sum_history": calibration.parameter_history("word_sum", defaults.model_name),
         "chain_history": calibration.parameter_history("word_chain", chain_defaults.model_name),
+        "preference_queue": queue,
     })
+
+
+PREFERENCE_LABEL_BATCH_MAX = 50
+
+
+def _preference_example_json(item):
+    return {
+        "id": item.pk,
+        "example_type": item.example_type,
+        "words": item.words,
+    }
+
+
+@staff_member_required
+@require_POST
+def generate_preference_examples(request):
+    try:
+        data = json.loads(request.body)
+        count = int(data.get("count", 20))
+        if not 1 <= count <= PREFERENCE_LABEL_BATCH_MAX:
+            raise ValueError(f"Count must be between 1 and {PREFERENCE_LABEL_BATCH_MAX}.")
+
+        kind = data.get("kind")
+        if kind == PreferenceLabelExample.WORD_CHAIN:
+            model_name = data.get("model_name")
+            if model_name not in AVAILABLE_MODELS:
+                raise ValueError("Choose a valid word-chain model.")
+            parameters = {
+                "model_name": model_name,
+                "length": 3,
+                "start_percent": float(data["start_percent"]),
+                "min_previous_similarity": float(data["min_previous_similarity"]),
+                "max_earlier_similarity": float(data["max_earlier_similarity"]),
+            }
+            candidates = []
+            for _ in range(count):
+                words = generate_word_chain(
+                    length=3,
+                    start_percent=parameters["start_percent"],
+                    min_previous_similarity=parameters["min_previous_similarity"],
+                    max_earlier_similarity=parameters["max_earlier_similarity"],
+                    model_name=model_name,
+                )
+                if words:
+                    candidates.append(words)
+        elif kind == PreferenceLabelExample.WORD_SUM:
+            model_name = data.get("model_name")
+            if model_name not in AVAILABLE_MODELS:
+                raise ValueError("Choose a valid word-sum model.")
+            parameters = {
+                "model_name": model_name,
+                "related_pairs": data.get("related_pairs") is True,
+                "sum_scoring_method": data.get("sum_scoring_method"),
+                "refine_iterations": int(data["refine_iterations"]),
+                "min_similarity": float(data["min_similarity"]),
+                "min_refined_similarity": float(data["min_refined_similarity"]),
+                "min_gap_ratio": float(data["min_gap_ratio"]),
+                "max_synonym_similarity": float(data["max_synonym_similarity"]),
+            }
+            candidates = [
+                [candidate["addend1"], candidate["addend2"], candidate["sum_word"]]
+                for candidate in generate_word_sums(count=count, **parameters)
+            ]
+        else:
+            raise ValueError("Choose word chains or word sums.")
+
+        created = [
+            PreferenceLabelExample.objects.create(
+                example_type=kind,
+                words=candidate,
+            )
+            for candidate in candidates
+        ]
+        return JsonResponse({
+            "examples": [_preference_example_json(item) for item in created],
+            "requested": count,
+        })
+    except (KeyError, TypeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+    except FileNotFoundError:
+        return JsonResponse({"error": "The selected model file is unavailable."}, status=400)
+
+
+@staff_member_required
+@require_POST
+def label_preference_example(request, pk):
+    try:
+        data = json.loads(request.body)
+        label = data.get("label")
+        if isinstance(label, bool) or label not in (0, 1):
+            raise ValueError("Label must be 1 (good) or 0 (bad).")
+        item = get_object_or_404(PreferenceLabelExample, pk=pk)
+        item.label = label
+        item.save(update_fields=("label",))
+        return JsonResponse({"ok": True, "label": label})
+    except (json.JSONDecodeError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=400)
+
+
+@staff_member_required
+def export_preference_labels(request):
+    examples = PreferenceLabelExample.objects.filter(label__isnull=False).order_by("pk")
+    lines = (
+        json.dumps({
+            "type": item.example_type,
+            "words": item.words,
+            "label": item.label,
+        }, separators=(",", ":"))
+        for item in examples
+    )
+    response = HttpResponse("\n".join(lines), content_type="application/x-ndjson")
+    response["Content-Disposition"] = 'attachment; filename="preference-labels.jsonl"'
+    return response
 
 
 @staff_member_required

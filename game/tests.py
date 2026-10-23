@@ -13,8 +13,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
-    CalibrationClick, CalibrationRound, Duel, Puzzle, PuzzleCompletion,
-    WordChain, WordChainSlot, WordSum,
+    CalibrationClick, CalibrationRound, Duel, PreferenceLabelExample, Puzzle,
+    PuzzleCompletion, WordChain, WordChainSlot, WordSum,
 )
 from .calibration import (
     as_dict, chain_as_dict, generate_chain_round, generate_round,
@@ -153,6 +153,73 @@ class DuelProgressTests(TestCase):
         self.assertEqual(duel.status, Duel.STATUS_COMPLETED)
         puzzle.refresh_from_db()
         self.assertTrue(puzzle.solved)
+
+
+class PreferenceLabelingTests(TestCase):
+    def setUp(self):
+        self.admin = get_user_model().objects.create_user(
+            "label_admin", password="password", is_staff=True,
+        )
+        self.client.force_login(self.admin)
+
+    @patch("game.views.generate_word_chain")
+    def test_chain_examples_are_saved_labeled_and_exported(self, generate):
+        generate.side_effect = [["sun", "bright", "day"], ["cold", "ice", "cream"]]
+        response = self.client.post(
+            reverse("generate_preference_examples"),
+            data=json.dumps({
+                "kind": "word_chain", "count": 2,
+                "model_name": WORD_CHAIN_10K_MODEL,
+                "start_percent": 20, "min_previous_similarity": 0.47,
+                "max_earlier_similarity": 0.31,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(PreferenceLabelExample.objects.order_by("pk"))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].words, ["sun", "bright", "day"])
+        self.assertTrue(all(row.label is None for row in rows))
+
+        for row, label in zip(rows, (1, 0)):
+            response = self.client.post(
+                reverse("label_preference_example", args=[row.pk]),
+                data=json.dumps({"label": label}),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        exported = self.client.get(reverse("export_preference_labels"))
+        records = [json.loads(line) for line in exported.content.decode().splitlines()]
+        self.assertEqual([record["label"] for record in records], [1, 0])
+        self.assertEqual(records[0]["type"], "word_chain")
+        self.assertEqual(records[0]["words"], ["sun", "bright", "day"])
+        self.assertEqual(set(records[0]), {"type", "words", "label"})
+
+    @patch("game.views.generate_word_sums")
+    def test_word_sum_examples_save_only_words_and_label(self, generate):
+        generate.return_value = [{
+            "type": "word_sum", "addend1": "sun", "addend2": "rain",
+            "sum_word": "light", "addend_similarity": 0.1, "sum_similarity": 0.7,
+        }]
+        response = self.client.post(
+            reverse("generate_preference_examples"),
+            data=json.dumps({
+                "kind": "word_sum", "count": 1,
+                "model_name": "conceptnet-numberbatch-en-3k",
+                "related_pairs": True, "sum_scoring_method": "cosmul",
+                "refine_iterations": 1, "min_similarity": 0.25,
+                "min_refined_similarity": 0.5, "min_gap_ratio": 1,
+                "max_synonym_similarity": 0.45,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = PreferenceLabelExample.objects.get()
+        self.assertEqual(row.words, ["sun", "rain", "light"])
+        self.assertEqual(row.label, None)
 
 
 class PuzzleCompletionTests(TestCase):
@@ -587,6 +654,9 @@ class WordChainTests(TestCase):
         self.assertContains(page, "Word-sum calibration")
         self.assertContains(page, "Generate word sums")
         self.assertContains(page, "Generate word chains")
+        self.assertContains(page, "Preference labels")
+        self.assertContains(page, "Generate 3-word chains")
+        self.assertContains(page, "Download labeled examples")
         self.assertContains(page, '<option value="conceptnet-numberbatch-en-3k-abtt"')
         self.assertContains(page, '<option value="conceptnet-numberbatch-en-10k-abtt" selected>ConceptNet Numberbatch (10,000 words, ABTT)</option>')
         self.assertContains(page, '<option value="openai-text-embedding-3-large-subtlex-us-5000">')

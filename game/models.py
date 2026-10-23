@@ -135,6 +135,26 @@ class CalibrationClick(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class PreferenceLabelExample(models.Model):
+    WORD_CHAIN = "word_chain"
+    WORD_SUM = "word_sum"
+    EXAMPLE_TYPES = [(WORD_CHAIN, "Word chain"), (WORD_SUM, "Word sum")]
+
+    example_type = models.CharField(max_length=16, choices=EXAMPLE_TYPES)
+    words = models.JSONField()
+    label = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["pk"]
+        indexes = [models.Index(fields=["example_type", "label"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(label__isnull=True) | models.Q(label__in=[0, 1]),
+                name="preference_label_is_binary",
+            ),
+        ]
+
+
 class Duel(models.Model):
     STATUS_PENDING = "pending"
     STATUS_ACTIVE = "active"
