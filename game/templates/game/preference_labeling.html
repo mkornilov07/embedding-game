@@ -4,7 +4,7 @@
 <main class="page calibration-page preference-page">
   <div class="back"><a class="back-link" href="{% url 'debug_tools' %}">&larr; Debug tools</a></div>
   <h1>Preference labeling</h1>
-  <p class="subtitle">Use <kbd>1</kbd> for good, <kbd>0</kbd> for bad, and <kbd>→</kbd> to skip.</p>
+  <p class="subtitle"><strong>{{ word_chain_count }}</strong> word chains in the dataset. Use <kbd>1</kbd> for good, <kbd>0</kbd> for bad, and <kbd>&rarr;</kbd> to skip.</p>
   <div class="preference-workspace">
     <section class="debug-section preference-settings">
       <h2>Generate examples</h2>
@@ -13,6 +13,7 @@
         <div class="calibration-controls">
           <div class="field"><label for="chain-model">Model</label><select id="chain-model">{% for key,label in available_models.items %}<option value="{{ key }}"{% if chain_parameters.model_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
           <div class="field"><label for="chain-count">Examples</label><input id="chain-count" type="number" min="1" max="50" value="20"></div>
+          <div class="field"><label for="chain-stdev">Parameter noise standard deviation</label><input id="chain-stdev" type="number" min="0" step="0.01" value="0.1"></div>
           <div class="field"><label for="chain-start-percent">Starting words: top %</label><input id="chain-start-percent" type="number" min="0.01" max="100" step="any" value="{{ chain_parameters.start_percent }}"></div>
           <div class="field"><label for="chain-min-previous">Minimum adjacent similarity</label><input id="chain-min-previous" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.min_previous_similarity }}"></div>
           <div class="field"><label for="chain-max-earlier">Maximum earlier similarity</label><input id="chain-max-earlier" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.max_earlier_similarity }}"></div>
@@ -51,7 +52,7 @@
       <div class="preference-label-actions preference-main-actions">
         <button class="btn btn-primary" id="label-good" accesskey="1">Good <kbd>1</kbd></button>
         <button class="btn btn-ghost" id="label-bad" accesskey="0">Bad <kbd>0</kbd></button>
-        <button class="btn btn-ghost" id="label-skip">Skip <kbd>→</kbd></button>
+        <button class="btn btn-ghost" id="label-skip">Skip <kbd>&rarr;</kbd></button>
       </div>
       <div class="error" id="label-error" hidden role="alert"></div>
       <ul id="preference-queue" class="preference-queue"></ul>
@@ -117,7 +118,7 @@
     const status = document.getElementById("label-generation-status");
     try {
       let data;
-      if (kind === "word_chain") data = await post(generateUrl, {kind, count: number("chain-count"), model_name: document.getElementById("chain-model").value, start_percent: number("chain-start-percent"), min_previous_similarity: number("chain-min-previous"), max_earlier_similarity: number("chain-max-earlier")});
+      if (kind === "word_chain") data = await post(generateUrl, {kind, count: number("chain-count"), stdev: number("chain-stdev"), model_name: document.getElementById("chain-model").value, start_percent: number("chain-start-percent"), min_previous_similarity: number("chain-min-previous"), max_earlier_similarity: number("chain-max-earlier")});
       else data = await post(generateUrl, {kind, count: number("sum-count"), model_name: document.getElementById("sum-model").value, related_pairs: document.getElementById("sum-related-pairs").value === "true", sum_scoring_method: document.getElementById("sum-scoring-method").value, refine_iterations: number("sum-refine-iterations"), min_similarity: number("sum-min-similarity"), min_refined_similarity: number("sum-min-refined"), min_gap_ratio: number("sum-min-gap"), max_synonym_similarity: number("sum-max-synonym")});
       examples.push(...data.examples); render(); status.textContent = `Added ${data.examples.length} examples.`;
     } catch (e) { error.textContent = e.message; error.hidden = false; }

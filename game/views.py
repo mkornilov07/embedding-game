@@ -1,4 +1,6 @@
 import json
+import math
+import random
 import traceback
 
 from django.contrib.auth import get_user_model, login
@@ -388,7 +390,11 @@ def pin_puzzle(request, pk):
 
 @staff_member_required
 def debug_tools(request):
-    return render(request, "game/debug_tools.html")
+    return render(request, "game/debug_tools.html", {
+        "word_chain_count": PreferenceLabelExample.objects.filter(
+            example_type=PreferenceLabelExample.WORD_CHAIN,
+        ).count(),
+    })
 
 
 @staff_member_required
@@ -432,6 +438,9 @@ def preference_labeling_view(request):
         "available_models": AVAILABLE_MODELS,
         "refine_options": (0, 1, 2, 3),
         "preference_queue": queue,
+        "word_chain_count": PreferenceLabelExample.objects.filter(
+            example_type=PreferenceLabelExample.WORD_CHAIN,
+        ).count(),
     })
 
 
@@ -460,20 +469,26 @@ def generate_preference_examples(request):
             model_name = data.get("model_name")
             if model_name not in AVAILABLE_MODELS:
                 raise ValueError("Choose a valid word-chain model.")
-            parameters = {
-                "model_name": model_name,
-                "length": 3,
+            stdev = float(data.get("stdev", 0.1))
+            if not math.isfinite(stdev) or stdev < 0:
+                raise ValueError("Standard deviation must be a non-negative number.")
+            base_parameters = {
                 "start_percent": float(data["start_percent"]),
                 "min_previous_similarity": float(data["min_previous_similarity"]),
                 "max_earlier_similarity": float(data["max_earlier_similarity"]),
             }
             candidates = []
             for _ in range(count):
+                parameters = {
+                    field: value + random.gauss(0, stdev) * (100 if field == "start_percent" else 1)
+                    for field, value in base_parameters.items()
+                }
+                parameters["start_percent"] = min(100, max(0.01, parameters["start_percent"]))
+                for field in ("min_previous_similarity", "max_earlier_similarity"):
+                    parameters[field] = min(1, max(-1, parameters[field]))
                 words = generate_word_chain(
                     length=3,
-                    start_percent=parameters["start_percent"],
-                    min_previous_similarity=parameters["min_previous_similarity"],
-                    max_earlier_similarity=parameters["max_earlier_similarity"],
+                    **parameters,
                     model_name=model_name,
                 )
                 if words:

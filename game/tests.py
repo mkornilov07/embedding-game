@@ -162,6 +162,27 @@ class PreferenceLabelingTests(TestCase):
         )
         self.client.force_login(self.admin)
 
+    def test_debug_pages_show_total_word_chain_dataset_count(self):
+        PreferenceLabelExample.objects.create(
+            example_type=PreferenceLabelExample.WORD_CHAIN,
+            words=["sun", "bright", "day"], label=1,
+        )
+        PreferenceLabelExample.objects.create(
+            example_type=PreferenceLabelExample.WORD_CHAIN,
+            words=["cold", "ice", "cream"],
+        )
+        PreferenceLabelExample.objects.create(
+            example_type=PreferenceLabelExample.WORD_SUM,
+            words=["sun", "rain", "light"],
+        )
+
+        for page_name in ("debug_tools", "preference_labeling"):
+            with self.subTest(page=page_name):
+                self.assertContains(
+                    self.client.get(reverse(page_name)),
+                    "2</strong> word chains in the dataset",
+                )
+
     @patch("game.views.generate_word_chain")
     def test_chain_examples_are_saved_labeled_and_exported(self, generate):
         generate.side_effect = [["sun", "bright", "day"], ["cold", "ice", "cream"]]
@@ -196,6 +217,29 @@ class PreferenceLabelingTests(TestCase):
         self.assertEqual(records[0]["type"], "word_chain")
         self.assertEqual(records[0]["words"], ["sun", "bright", "day"])
         self.assertEqual(set(records[0]), {"type", "words", "label"})
+
+    @patch("game.views.random.gauss", side_effect=[0.5, 0.05, -0.1, -0.5, -0.05, 0.1])
+    @patch("game.views.generate_word_chain", return_value=["one", "two", "three"])
+    def test_chain_label_generation_perturbs_parameters_per_example(self, generate, gaussian):
+        response = self.client.post(
+            reverse("generate_preference_examples"),
+            data=json.dumps({
+                "kind": "word_chain", "count": 2, "model_name": WORD_CHAIN_10K_MODEL,
+                "start_percent": 20, "min_previous_similarity": 0.4,
+                "max_earlier_similarity": 0.3, "stdev": 0.5,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        calls = generate.call_args_list
+        self.assertEqual(calls[0].kwargs["start_percent"], 70)
+        self.assertAlmostEqual(calls[0].kwargs["min_previous_similarity"], 0.45)
+        self.assertAlmostEqual(calls[0].kwargs["max_earlier_similarity"], 0.2)
+        self.assertEqual(calls[1].kwargs["start_percent"], 0.01)
+        self.assertAlmostEqual(calls[1].kwargs["min_previous_similarity"], 0.35)
+        self.assertAlmostEqual(calls[1].kwargs["max_earlier_similarity"], 0.4)
+        self.assertEqual(gaussian.call_count, 6)
 
     @patch("game.views.generate_word_sums")
     def test_word_sum_examples_save_only_words_and_label(self, generate):

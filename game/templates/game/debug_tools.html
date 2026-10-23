@@ -7,7 +7,7 @@
   <p class="subtitle">Choose a tool.</p>
   <div class="debug-tool-grid">
     <a class="debug-tool-card" href="{% url 'calibration' %}"><h2>Parameter calibration</h2><p>Adjust word-sum and word-chain defaults and review calibration history.</p></a>
-    <a class="debug-tool-card" href="{% url 'preference_labeling' %}"><h2>Preference labeling</h2><p>Generate examples with chosen settings, then label them using the keyboard.</p></a>
+    <a class="debug-tool-card" href="{% url 'preference_labeling' %}"><h2>Preference labeling</h2><p>Generate examples with chosen settings, then label them using the keyboard.</p><p><strong>{{ word_chain_count }}</strong> word chains in the dataset</p></a>
   </div>
 </main>
 {% endblock %}
