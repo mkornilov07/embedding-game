@@ -9,7 +9,6 @@ Odd days use word sums; even days use word chains. Failures bubble up as
 import random
 import time
 import traceback
-from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, connection, transaction
@@ -47,15 +46,14 @@ class Command(BaseCommand):
             self.stdout.write(f"Daily puzzle for {today} already exists; nothing to do.")
             return
 
-        previous_day = today - timedelta(days=1)
-        previous_puzzle = (
-            Puzzle.objects.filter(is_daily=True, created_at__date=previous_day)
-            .order_by("-created_at")
+        last_puzzle = (
+            Puzzle.objects.filter(is_daily=True)
+            .order_by("-created_at", "-pk")
             .first()
         )
-        if previous_puzzle and not previous_puzzle.solved:
+        if last_puzzle and not last_puzzle.solved:
             self.stdout.write(
-                f"Daily puzzle for {previous_day} was not solved; skipping {today}."
+                f'Daily puzzle "{last_puzzle.name}" is not solved; skipping {today}.'
             )
             return
 

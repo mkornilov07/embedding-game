@@ -89,6 +89,23 @@ class DailyPuzzleGenerationTests(TestCase):
         self.assertEqual(WordSum.objects.filter(puzzle=puzzle).count(), 5)
         self.assertFalse(WordChain.objects.filter(puzzle=puzzle).exists())
 
+    @patch("game.management.commands.generate_daily_puzzle.Command._wait_for_db")
+    @patch("game.management.commands.generate_daily_puzzle.timezone.now")
+    @patch("game.management.commands.generate_daily_puzzle.generate_word_chain")
+    def test_unsolved_last_daily_puzzle_blocks_generation_even_if_not_yesterday(
+        self, generate, now, _probe,
+    ):
+        now.return_value = datetime(2026, 10, 18, tzinfo=datetime_timezone.utc)
+        last_puzzle = Puzzle.objects.create(name="October 15, 2026", is_daily=True)
+        Puzzle.objects.filter(pk=last_puzzle.pk).update(
+            created_at=datetime(2026, 10, 15, tzinfo=datetime_timezone.utc),
+        )
+
+        call_command("generate_daily_puzzle", stdout=StringIO())
+
+        self.assertEqual(Puzzle.objects.filter(is_daily=True).count(), 1)
+        generate.assert_not_called()
+
 
 class VocabularyFilteringTests(SimpleTestCase):
     @patch("build_models.nltk.pos_tag_sents")

@@ -23,6 +23,12 @@ AVAILABLE_MODELS = {
     "openai-text-embedding-3-large-subtlex-us-5000-abtt": (
         "OpenAI text-embedding-3-large (5,000 words, ABTT)"
     ),
+    "openai-text-embedding-3-large-300d-subtlex-us-5000": (
+        "OpenAI text-embedding-3-large (300 dimensions, 5,000 words)"
+    ),
+    "openai-text-embedding-3-large-300d-subtlex-us-5000-abtt": (
+        "OpenAI text-embedding-3-large (300 dimensions, 5,000 words, ABTT)"
+    ),
 }
 
 DEFAULT_MODEL = "conceptnet-numberbatch-en-3k"
