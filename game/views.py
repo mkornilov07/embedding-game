@@ -387,6 +387,11 @@ def pin_puzzle(request, pk):
 
 
 @staff_member_required
+def debug_tools(request):
+    return render(request, "game/debug_tools.html")
+
+
+@staff_member_required
 def calibration_view(request):
     model_name = request.GET.get("model")
     chain_model = request.GET.get("chain_model")
@@ -397,14 +402,6 @@ def calibration_view(request):
     defaults = calibration.get_defaults(model_name)
     chain_defaults = calibration.get_chain_defaults(chain_model)
     models = AVAILABLE_MODELS
-    queue = [
-        {
-            "id": item.pk,
-            "example_type": item.example_type,
-            "words": item.words,
-        }
-        for item in PreferenceLabelExample.objects.filter(label__isnull=True)[:100]
-    ]
     return render(request, "game/calibration.html", {
         "parameters": calibration.as_dict(defaults),
         "available_models": models,
@@ -412,6 +409,28 @@ def calibration_view(request):
         "chain_parameters": calibration.chain_as_dict(chain_defaults),
         "sum_history": calibration.parameter_history("word_sum", defaults.model_name),
         "chain_history": calibration.parameter_history("word_chain", chain_defaults.model_name),
+    })
+
+
+@staff_member_required
+def preference_labeling_view(request):
+    model_name = request.GET.get("model")
+    chain_model = request.GET.get("chain_model")
+    if model_name not in AVAILABLE_MODELS:
+        model_name = None
+    if chain_model not in AVAILABLE_MODELS:
+        chain_model = None
+    defaults = calibration.get_defaults(model_name)
+    chain_defaults = calibration.get_chain_defaults(chain_model)
+    queue = [
+        {"id": item.pk, "example_type": item.example_type, "words": item.words}
+        for item in PreferenceLabelExample.objects.filter(label__isnull=True)[:100]
+    ]
+    return render(request, "game/preference_labeling.html", {
+        "parameters": calibration.as_dict(defaults),
+        "chain_parameters": calibration.chain_as_dict(chain_defaults),
+        "available_models": AVAILABLE_MODELS,
+        "refine_options": (0, 1, 2, 3),
         "preference_queue": queue,
     })
 

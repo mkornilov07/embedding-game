@@ -1,0 +1,130 @@
+{% extends "game/base.html" %}
+{% block title %}Preference labeling{% endblock %}
+{% block body %}
+<main class="page calibration-page preference-page">
+  <div class="back"><a class="back-link" href="{% url 'debug_tools' %}">&larr; Debug tools</a></div>
+  <h1>Preference labeling</h1>
+  <p class="subtitle">Use <kbd>1</kbd> for good, <kbd>0</kbd> for bad, and <kbd>→</kbd> to skip.</p>
+  <div class="preference-workspace">
+    <section class="debug-section preference-settings">
+      <h2>Generate examples</h2>
+      <details open>
+        <summary>3-word chain settings</summary>
+        <div class="calibration-controls">
+          <div class="field"><label for="chain-model">Model</label><select id="chain-model">{% for key,label in available_models.items %}<option value="{{ key }}"{% if chain_parameters.model_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="chain-count">Examples</label><input id="chain-count" type="number" min="1" max="50" value="20"></div>
+          <div class="field"><label for="chain-start-percent">Starting words: top %</label><input id="chain-start-percent" type="number" min="0.01" max="100" step="any" value="{{ chain_parameters.start_percent }}"></div>
+          <div class="field"><label for="chain-min-previous">Minimum adjacent similarity</label><input id="chain-min-previous" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.min_previous_similarity }}"></div>
+          <div class="field"><label for="chain-max-earlier">Maximum earlier similarity</label><input id="chain-max-earlier" type="number" min="-1" max="1" step="any" value="{{ chain_parameters.max_earlier_similarity }}"></div>
+        </div>
+        <button class="btn btn-primary" id="generate-chain-labels">Generate chains</button>
+      </details>
+      <details>
+        <summary>Word-sum settings</summary>
+        <div class="calibration-controls">
+          <div class="field"><label for="sum-model">Model</label><select id="sum-model">{% for key,label in available_models.items %}<option value="{{ key }}"{% if parameters.model_name == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="sum-count">Examples</label><input id="sum-count" type="number" min="1" max="50" value="20"></div>
+          <div class="field"><label for="sum-related-pairs">Prefer higher-cosine orthogonal pairs</label><select id="sum-related-pairs"><option value="true"{% if parameters.related_pairs %} selected{% endif %}>Yes</option><option value="false"{% if not parameters.related_pairs %} selected{% endif %}>No</option></select></div>
+          <div class="field"><label for="sum-scoring-method">Sum scoring</label><select id="sum-scoring-method"><option value="cosmul"{% if parameters.sum_scoring_method == "cosmul" %} selected{% endif %}>3CosMul</option><option value="cosadd"{% if parameters.sum_scoring_method == "cosadd" %} selected{% endif %}>3CosAdd</option><option value="raw_sum"{% if parameters.sum_scoring_method == "raw_sum" %} selected{% endif %}>Raw-vector-sum cosine</option></select></div>
+          <div class="field"><label for="sum-refine-iterations">Refinement iterations</label><select id="sum-refine-iterations">{% for option in refine_options %}<option value="{{ option }}"{% if option == parameters.refine_iterations %} selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="sum-min-similarity">Minimum candidate score</label><input id="sum-min-similarity" type="number" step="any" value="{{ parameters.min_similarity }}"></div>
+          <div class="field"><label for="sum-min-refined">Minimum refined score</label><input id="sum-min-refined" type="number" step="any" value="{{ parameters.min_refined_similarity }}"></div>
+          <div class="field"><label for="sum-min-gap">Minimum gap ratio</label><input id="sum-min-gap" type="number" min="1" step="any" value="{{ parameters.min_gap_ratio }}"></div>
+          <div class="field"><label for="sum-max-synonym">Maximum synonym similarity</label><input id="sum-max-synonym" type="number" min="-1" max="1" step="any" value="{{ parameters.max_synonym_similarity }}"></div>
+        </div>
+        <button class="btn btn-ghost" id="generate-sum-labels">Generate sums</button>
+      </details>
+      <p class="calibration-current" id="label-generation-status" role="status"></p>
+    </section>
+    <section class="debug-section preference-review">
+      <div class="preference-review-header">
+        <h2>Review examples</h2>
+        <a href="{% url 'export_preference_labels' %}">Download labeled data</a>
+      </div>
+      <div class="preference-filter" role="group" aria-label="Filter examples">
+        <button class="btn btn-ghost active" data-filter="all">All</button>
+        <button class="btn btn-ghost" data-filter="word_chain">Chains</button>
+        <button class="btn btn-ghost" data-filter="word_sum">Sums</button>
+      </div>
+      <p id="preference-progress" class="calibration-current" aria-live="polite"></p>
+      <article id="active-example" class="preference-active-card" aria-live="polite"></article>
+      <div class="preference-label-actions preference-main-actions">
+        <button class="btn btn-primary" id="label-good" accesskey="1">Good <kbd>1</kbd></button>
+        <button class="btn btn-ghost" id="label-bad" accesskey="0">Bad <kbd>0</kbd></button>
+        <button class="btn btn-ghost" id="label-skip">Skip <kbd>→</kbd></button>
+      </div>
+      <div class="error" id="label-error" hidden role="alert"></div>
+      <ul id="preference-queue" class="preference-queue"></ul>
+    </section>
+  </div>
+  {{ preference_queue|json_script:"preference-label-queue-data" }}
+</main>
+{% endblock %}
+{% block scripts %}
+<script>
+  const csrfToken = "{{ csrf_token }}";
+  const generateUrl = "{% url 'generate_preference_examples' %}";
+  const labelUrl = id => `/debug/labels/${id}/`;
+  const examples = JSON.parse(document.getElementById("preference-label-queue-data").textContent);
+  let filter = "all";
+  let busy = false;
+  const active = document.getElementById("active-example");
+  const progress = document.getElementById("preference-progress");
+  const error = document.getElementById("label-error");
+
+  async function post(url, body) {
+    const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken}, body: JSON.stringify(body)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed.");
+    return data;
+  }
+  function visibleExamples() { return examples.filter(item => filter === "all" || item.example_type === filter); }
+  function textFor(item) { return item.example_type === "word_chain" ? item.words.join(" → ") : `${item.words[0]} + ${item.words[1]} = ${item.words[2]}`; }
+  function render() {
+    const visible = visibleExamples();
+    const item = visible[0];
+    progress.textContent = `${visible.length} to label · ${examples.length} total`;
+    active.replaceChildren();
+    if (!item) { active.textContent = "No examples waiting. Generate a batch to continue."; return; }
+    const kind = document.createElement("div"); kind.className = "calibration-label"; kind.textContent = item.example_type === "word_chain" ? "3-word chain" : "Word sum";
+    const words = document.createElement("div"); words.className = "preference-label-example"; words.textContent = textFor(item);
+    const position = document.createElement("div"); position.className = "calibration-label"; position.textContent = "1 / " + visible.length;
+    active.append(kind, words, position);
+    const list = document.getElementById("preference-queue"); list.replaceChildren();
+    visible.slice(1, 6).forEach(next => { const li = document.createElement("li"); li.textContent = textFor(next); list.appendChild(li); });
+  }
+  async function label(value) {
+    if (busy || !visibleExamples().length) return;
+    busy = true; error.hidden = true;
+    const item = visibleExamples()[0];
+    try { await post(labelUrl(item.id), {label: value}); examples.splice(examples.indexOf(item), 1); render(); }
+    catch (e) { error.textContent = e.message; error.hidden = false; }
+    finally { busy = false; }
+  }
+  document.getElementById("label-good").addEventListener("click", () => label(1));
+  document.getElementById("label-bad").addEventListener("click", () => label(0));
+  document.getElementById("label-skip").addEventListener("click", () => { const item = visibleExamples()[0]; if (item) { examples.push(examples.splice(examples.indexOf(item), 1)[0]); render(); } });
+  document.querySelectorAll(".preference-filter button").forEach(button => button.addEventListener("click", () => { filter = button.dataset.filter; document.querySelectorAll(".preference-filter button").forEach(b => b.classList.toggle("active", b === button)); render(); }));
+  document.addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (event.key === "1") { event.preventDefault(); label(1); }
+    else if (event.key === "0") { event.preventDefault(); label(0); }
+    else if (event.key === "ArrowRight") { event.preventDefault(); document.getElementById("label-skip").click(); }
+  });
+  function number(id) { return Number(document.getElementById(id).value); }
+  async function generate(kind, button) {
+    button.disabled = true; error.hidden = true;
+    const status = document.getElementById("label-generation-status");
+    try {
+      let data;
+      if (kind === "word_chain") data = await post(generateUrl, {kind, count: number("chain-count"), model_name: document.getElementById("chain-model").value, start_percent: number("chain-start-percent"), min_previous_similarity: number("chain-min-previous"), max_earlier_similarity: number("chain-max-earlier")});
+      else data = await post(generateUrl, {kind, count: number("sum-count"), model_name: document.getElementById("sum-model").value, related_pairs: document.getElementById("sum-related-pairs").value === "true", sum_scoring_method: document.getElementById("sum-scoring-method").value, refine_iterations: number("sum-refine-iterations"), min_similarity: number("sum-min-similarity"), min_refined_similarity: number("sum-min-refined"), min_gap_ratio: number("sum-min-gap"), max_synonym_similarity: number("sum-max-synonym")});
+      examples.push(...data.examples); render(); status.textContent = `Added ${data.examples.length} examples.`;
+    } catch (e) { error.textContent = e.message; error.hidden = false; }
+    finally { button.disabled = false; }
+  }
+  document.getElementById("generate-chain-labels").addEventListener("click", event => generate("word_chain", event.currentTarget));
+  document.getElementById("generate-sum-labels").addEventListener("click", event => generate("word_sum", event.currentTarget));
+  render();
+</script>
+{% endblock %}

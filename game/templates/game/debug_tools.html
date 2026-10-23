@@ -1,0 +1,13 @@
+{% extends "game/base.html" %}
+{% block title %}Debug tools{% endblock %}
+{% block body %}
+<main class="page calibration-page">
+  <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; Puzzles</a></div>
+  <h1>Debug tools</h1>
+  <p class="subtitle">Choose a tool.</p>
+  <div class="debug-tool-grid">
+    <a class="debug-tool-card" href="{% url 'calibration' %}"><h2>Parameter calibration</h2><p>Adjust word-sum and word-chain defaults and review calibration history.</p></a>
+    <a class="debug-tool-card" href="{% url 'preference_labeling' %}"><h2>Preference labeling</h2><p>Generate examples with chosen settings, then label them using the keyboard.</p></a>
+  </div>
+</main>
+{% endblock %}

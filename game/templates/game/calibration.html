@@ -5,7 +5,8 @@
 {% block body %}
 <div class="page calibration-page">
   <div class="back"><a class="back-link" href="{% url 'puzzle_list' %}">&larr; Puzzles</a></div>
-  <h1>Debug tools</h1>
+  <h1>Parameter calibration</h1>
+  <p class="debug-nav"><a href="{% url 'debug_tools' %}">All debug tools</a> · <a href="{% url 'preference_labeling' %}">Preference labeling</a></p>
   <section class="debug-section">
   <h2>Word-sum calibration</h2>
   <p class="subtitle">Choose the discrete generation settings, then select the word sum you prefer.</p>
@@ -99,30 +100,7 @@
     <div class="debug-results" id="debug-chain-results"></div>
   </section>
 
-  <section class="debug-section" id="preference-labeling">
-    <h2>Preference labels</h2>
-    <p class="subtitle">Label generated examples to build a dataset for preference training.</p>
-    <p><a href="{% url 'export_preference_labels' %}">Download labeled examples</a></p>
 
-    <h3>Word chains</h3>
-    <p class="subtitle">Each example is a three-word chain generated with the chain settings above.</p>
-    <div class="calibration-controls">
-      <div class="field"><label for="chain-label-count">Examples</label><input id="chain-label-count" type="number" min="1" max="50" value="20"></div>
-      <div class="field"><button class="btn btn-primary" id="generate-chain-labels">Generate 3-word chains</button></div>
-    </div>
-    <div class="calibration-current" id="chain-label-status"></div>
-    <div class="preference-label-queue" id="chain-label-queue"></div>
-
-    <h3>Word sums</h3>
-    <p class="subtitle">Examples use the word-sum settings above.</p>
-    <div class="calibration-controls">
-      <div class="field"><label for="sum-label-count">Examples</label><input id="sum-label-count" type="number" min="1" max="50" value="20"></div>
-      <div class="field"><button class="btn btn-ghost" id="generate-sum-labels">Generate word sums</button></div>
-    </div>
-    <div class="calibration-current" id="sum-label-status"></div>
-    <div class="preference-label-queue" id="sum-label-queue"></div>
-    {{ preference_queue|json_script:"preference-label-queue-data" }}
-  </section>
 </div>
 {% endblock %}
 
@@ -132,8 +110,6 @@
   const startUrl = "{% url 'start_calibration' %}";
   const selectUrl = id => `/calibrate/${id}/select/`;
   const generateUrl = "{% url 'generate_combinations' %}";
-  const preferenceGenerateUrl = "{% url 'generate_preference_examples' %}";
-  const preferenceLabelUrl = id => `/debug/labels/${id}/`;
   const currentParameters = document.getElementById("current-parameters");
   const grid = document.getElementById("candidate-grid");
   const errorEl = document.getElementById("calibration-error");
@@ -343,7 +319,7 @@
       const button = document.createElement("button");
       button.className = "calibration-choice";
       button.disabled = !candidate.available;
-      button.textContent = candidate.combination?.join(" → ") || candidate.error || "Unavailable";
+      button.textContent = candidate.combination?.join(" ? ") || candidate.error || "Unavailable";
       button.addEventListener("click", () => chooseChainCandidate(round.round_id, index));
       card.append(label, button);
       chainGrid.appendChild(card);
@@ -446,7 +422,7 @@
         const chain = data.combinations[0].words.map(slot => slot.word);
         const row = document.createElement("div");
         row.className = "debug-result";
-        row.textContent = chain.join(" → ");
+        row.textContent = chain.join(" \u2192 ");
         results.appendChild(row);
         const scores = document.createElement("div");
         scores.className = "calibration-label";
@@ -462,110 +438,5 @@
     );
   });
 
-  const preferenceQueues = {
-    word_chain: document.getElementById("chain-label-queue"),
-    word_sum: document.getElementById("sum-label-queue"),
-  };
-  const preferenceStatuses = {
-    word_chain: document.getElementById("chain-label-status"),
-    word_sum: document.getElementById("sum-label-status"),
-  };
-
-  function preferenceText(item) {
-    if (item.example_type === "word_chain") return item.words.join(" → ");
-    return `${item.words[0]} + ${item.words[1]} = ${item.words[2]}`;
-  }
-
-  function updatePreferenceCount(kind) {
-    const queue = preferenceQueues[kind];
-    preferenceStatuses[kind].textContent = `Unlabeled: ${queue.children.length}`;
-    if (!queue.children.length) queue.textContent = "No unlabeled examples.";
-  }
-
-  function renderPreferenceExample(item) {
-    const queue = preferenceQueues[item.example_type];
-    if (!queue.children.length) queue.replaceChildren();
-    const card = document.createElement("article");
-    card.className = "preference-label-card";
-    card.dataset.id = item.id;
-    const text = document.createElement("div");
-    text.className = "preference-label-example";
-    text.textContent = preferenceText(item);
-    const actions = document.createElement("div");
-    actions.className = "preference-label-actions";
-    for (const [label, text, style] of [[1, "Good (1)", "btn-primary"], [0, "Bad (0)", "btn-ghost"]]) {
-      const button = document.createElement("button");
-      button.className = `btn ${style}`;
-      button.type = "button";
-      button.textContent = text;
-      button.addEventListener("click", async () => {
-        actions.querySelectorAll("button").forEach(choice => choice.disabled = true);
-        try {
-          await postJson(preferenceLabelUrl(item.id), {label});
-          card.remove();
-          updatePreferenceCount(item.example_type);
-        } catch (error) {
-          preferenceStatuses[item.example_type].textContent = error.message;
-          actions.querySelectorAll("button").forEach(choice => choice.disabled = false);
-        }
-      });
-      actions.appendChild(button);
-    }
-    card.append(text, actions);
-    queue.appendChild(card);
-  }
-
-  const savedPreferenceQueue = JSON.parse(
-    document.getElementById("preference-label-queue-data").textContent,
-  );
-  savedPreferenceQueue.forEach(renderPreferenceExample);
-  Object.keys(preferenceQueues).forEach(updatePreferenceCount);
-
-  async function generatePreferenceBatch(kind, button) {
-    const sum = kind === "word_sum";
-    const countId = sum ? "sum-label-count" : "chain-label-count";
-    const status = preferenceStatuses[kind];
-    button.disabled = true;
-    try {
-      const count = readNumber(countId);
-      let parameters;
-      if (sum) {
-        const settings = discreteParameters();
-        parameters = {
-          kind, count, model_name: settings.model_name,
-          related_pairs: settings.related_pairs,
-          sum_scoring_method: settings.sum_scoring_method,
-          refine_iterations: settings.refine_iterations,
-          min_similarity: readNumber("debug-min-similarity"),
-          min_refined_similarity: readNumber("debug-min-refined-similarity"),
-          min_gap_ratio: readNumber("debug-min-gap-ratio"),
-          max_synonym_similarity: readNumber("debug-max-synonym-similarity"),
-        };
-      } else {
-        parameters = {
-          kind, count,
-          model_name: document.getElementById("debug-chain-vocabulary").value,
-          start_percent: readNumber("debug-chain-start-percent"),
-          min_previous_similarity: readNumber("debug-min-previous"),
-          max_earlier_similarity: readNumber("debug-max-earlier"),
-        };
-      }
-      const data = await postJson(preferenceGenerateUrl, parameters);
-      data.examples.forEach(renderPreferenceExample);
-      updatePreferenceCount(kind);
-      status.textContent = `Added ${data.examples.length} examples. ${status.textContent}`;
-    } catch (error) {
-      status.textContent = error.message;
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  document.getElementById("generate-chain-labels").addEventListener("click", event => {
-    generatePreferenceBatch("word_chain", event.currentTarget);
-  });
-  document.getElementById("generate-sum-labels").addEventListener("click", event => {
-    generatePreferenceBatch("word_sum", event.currentTarget);
-  });
 </script>
 {% endblock %}
