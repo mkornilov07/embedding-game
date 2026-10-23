@@ -23,7 +23,7 @@ from .calibration import (
 from .generators import (
     WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL,
     WORD_CHAIN_MAX_ATTEMPTS, WORD_CHAIN_MAX_EARLIER_SIMILARITY, WORD_CHAIN_MIN_SIMILARITY,
-    _best_arrangement, _similarity_search,
+    _best_arrangement, _negative_sample_scores, _similarity_search,
     generate_word_chain, validate_word_chain,
 )
 from .services import board_context, check_row, mark_puzzle_completed, record_solved_row
@@ -218,13 +218,13 @@ class PreferenceLabelingTests(TestCase):
         self.assertEqual(records[0]["words"], ["sun", "bright", "day"])
         self.assertEqual(set(records[0]), {"type", "words", "label"})
 
-    @patch("game.views.random.gauss", side_effect=[0.5, 0.05, -0.1, -0.5, -0.05, 0.1])
+    @patch("game.views.random.gauss", side_effect=[index / 100 for index in range(1, 61)])
     @patch("game.views.generate_word_chain", return_value=["one", "two", "three"])
     def test_chain_label_generation_perturbs_parameters_per_example(self, generate, gaussian):
         response = self.client.post(
             reverse("generate_preference_examples"),
             data=json.dumps({
-                "kind": "word_chain", "count": 2, "model_name": WORD_CHAIN_10K_MODEL,
+                "kind": "word_chain", "count": 20, "model_name": WORD_CHAIN_10K_MODEL,
                 "start_percent": 20, "min_previous_similarity": 0.4,
                 "max_earlier_similarity": 0.3, "stdev": 0.5,
             }),
@@ -233,13 +233,19 @@ class PreferenceLabelingTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         calls = generate.call_args_list
-        self.assertEqual(calls[0].kwargs["start_percent"], 70)
-        self.assertAlmostEqual(calls[0].kwargs["min_previous_similarity"], 0.45)
-        self.assertAlmostEqual(calls[0].kwargs["max_earlier_similarity"], 0.2)
-        self.assertEqual(calls[1].kwargs["start_percent"], 0.01)
-        self.assertAlmostEqual(calls[1].kwargs["min_previous_similarity"], 0.35)
-        self.assertAlmostEqual(calls[1].kwargs["max_earlier_similarity"], 0.4)
-        self.assertEqual(gaussian.call_count, 6)
+        self.assertEqual(len(calls), 20)
+        self.assertEqual(calls[0].kwargs["start_percent"], 21)
+        self.assertAlmostEqual(calls[0].kwargs["min_previous_similarity"], 0.42)
+        self.assertAlmostEqual(calls[0].kwargs["max_earlier_similarity"], 0.33)
+        self.assertEqual(calls[1].kwargs["start_percent"], 24)
+        self.assertAlmostEqual(calls[1].kwargs["min_previous_similarity"], 0.45)
+        self.assertAlmostEqual(calls[1].kwargs["max_earlier_similarity"], 0.36)
+        settings = {
+            (call.kwargs["start_percent"], call.kwargs["min_previous_similarity"], call.kwargs["max_earlier_similarity"])
+            for call in calls
+        }
+        self.assertEqual(len(settings), 20)
+        self.assertEqual(gaussian.call_count, 60)
 
     @patch("game.views.generate_word_sums")
     def test_word_sum_examples_save_only_words_and_label(self, generate):
@@ -613,8 +619,8 @@ class WordChainTests(TestCase):
         self.assertEqual(WORD_CHAIN_MAX_ATTEMPTS, 20)
         self.assertEqual(WORD_CHAIN_MIN_SIMILARITY, 0.47)
         self.assertEqual(WORD_CHAIN_MAX_EARLIER_SIMILARITY, 0.31)
-        with patch("game.generators.random.choice", return_value=0):
-            chain = generate_word_chain(3)
+        with patch("game.generators.random.choice", return_value=3):
+            chain = generate_word_chain(3, start_percent=100)
         self.model_loader.assert_called_with(WORD_CHAIN_10K_MODEL)
         self.assertEqual(len(chain), 3)
         self.assertEqual(len(set(chain)), 3)
@@ -622,7 +628,10 @@ class WordChainTests(TestCase):
 
         creator = get_user_model().objects.create_user("generator", password="password")
         self.client.force_login(creator)
-        with patch("game.generators.random.choice", return_value=0):
+        defaults = get_chain_defaults()
+        defaults.start_percent = 100
+        defaults.save(update_fields=("start_percent",))
+        with patch("game.generators.random.choice", return_value=3):
             response = self.client.post(
                 reverse("generate_combinations"),
                 data=json.dumps({"type": "word_chain", "length": 3}),
@@ -651,6 +660,18 @@ class WordChainTests(TestCase):
             3, min_previous_similarity=0.8, max_earlier_similarity=0.5,
         ))
 
+    def test_generator_uses_earlier_words_as_negative_samples(self):
+        with patch("game.generators.random.choice", return_value=3):
+            with patch("game.generators.random.choices", side_effect=lambda options, **_: [options[-1]]):
+                with patch("game.generators._negative_sample_scores", wraps=_negative_sample_scores) as scores:
+                    chain = generate_word_chain(
+                        3, min_previous_similarity=0.45,
+                        max_earlier_similarity=0.5, start_percent=100,
+                    )
+
+        self.assertEqual(len(chain), 3)
+        self.assertEqual(scores.call_args_list[1].args[1:], (2, [3]))
+
     def test_starting_word_uses_top_percentage_for_each_vocabulary(self):
         for model_name in (
             WORD_CHAIN_3K_MODEL, WORD_CHAIN_10K_MODEL,
@@ -670,8 +691,8 @@ class WordChainTests(TestCase):
 
     def test_10k_generator_uses_on_demand_similarities(self):
         with patch.object(self.model, "similar_by_key", wraps=self.model.similar_by_key) as similar:
-            with patch("game.generators.random.choice", return_value=0):
-                chain = generate_word_chain(3, model_name=WORD_CHAIN_10K_MODEL)
+            with patch("game.generators.random.choice", return_value=3):
+                chain = generate_word_chain(3, model_name=WORD_CHAIN_10K_MODEL, start_percent=100)
         self.assertTrue(similar.called)
         self.assertTrue(validate_word_chain(chain, model_name=WORD_CHAIN_10K_MODEL)["valid"])
         self.assertFalse(hasattr(self.model, "_chain_similarities"))

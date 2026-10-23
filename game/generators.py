@@ -121,6 +121,18 @@ def validate_word_chain(words, model_name=WORD_CHAIN_MODEL,
     }
 
 
+def _negative_sample_scores(model, positive_index, negative_indexes):
+    """Score vocabulary words against the latest word minus earlier-chain words."""
+    vectors = model._normalized_vectors
+    query = vectors[positive_index].copy()
+    if negative_indexes:
+        query -= vectors[negative_indexes].mean(axis=0)
+    norm = np.linalg.norm(query)
+    if norm == 0:
+        return np.zeros(len(vectors), dtype=np.float32)
+    return np.clip(vectors @ (query / norm), -1.0, 1.0)
+
+
 def generate_word_chain(
     length=5,
     min_previous_similarity=WORD_CHAIN_MIN_SIMILARITY,
@@ -200,8 +212,11 @@ def generate_word_chain(
             options = np.flatnonzero(allowed)
             if not len(options):
                 break
+            query_scores = _negative_sample_scores(model, current, chain_indexes[:-1])
+            option_scores = query_scores[options]
+            weights = option_scores - option_scores.min() + 1e-6
             chain_indexes.append(random.choices(
-                options.tolist(), weights=(1.0 - row[options]).tolist(), k=1,
+                options.tolist(), weights=weights.tolist(), k=1,
             )[0])
         if len(chain_indexes) == length:
             return [vocab[index] for index in chain_indexes]
